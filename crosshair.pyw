@@ -39,7 +39,19 @@ except Exception:
 GWL_EXSTYLE = -20
 WS_EX_TRANSPARENT = 0x00000020
 WM_HOTKEY = 0x0312
-MOD_CTRL_ALT = 0x0002 | 0x0001 | 0x4000
+WM_USER_REREGISTER = 0x0400 + 1
+
+MOD_ALT = 0x0001
+MOD_CONTROL = 0x0002
+MOD_SHIFT = 0x0004
+MOD_NOREPEAT = 0x4000
+
+MODIFIER_CHOICES = {
+    "Ctrl+Alt":       MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
+    "Ctrl+Shift":     MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
+    "Alt+Shift":      MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
+    "Ctrl+Alt+Shift": MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
+}
 
 # ─── Thème GUI ───────────────────────────────────────────────────────────────
 BG = "#1e1e1e"
@@ -131,10 +143,14 @@ def load_config():
                 _migrate_preset(p)
             while len(cfg.get("presets", [])) < 10:
                 cfg["presets"].append(DEFAULT_PRESETS[len(cfg["presets"])].copy())
+            cfg.setdefault("modifier", "Ctrl+Alt")
+            if cfg["modifier"] not in MODIFIER_CHOICES:
+                cfg["modifier"] = "Ctrl+Alt"
             return cfg
         except Exception:
             pass
-    return {"monitor": 0, "preset": 0, "presets": [p.copy() for p in DEFAULT_PRESETS]}
+    return {"monitor": 0, "preset": 0, "modifier": "Ctrl+Alt",
+            "presets": [p.copy() for p in DEFAULT_PRESETS]}
 
 
 def save_config(cfg):
@@ -174,28 +190,43 @@ HOTKEY_DEFS[20] = 0x30  # 0 → preset 10
 
 
 class HotkeyManager:
-    def __init__(self, root, callbacks):
+    def __init__(self, root, callbacks, modifier_flags):
         self.root = root
         self.callbacks = callbacks
+        self._mod = modifier_flags
         self._thread_id = None
+        self._ready = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
+        self._ready.wait(timeout=2)
+
+    def _register_all(self):
+        for hk_id in HOTKEY_DEFS:
+            user32.UnregisterHotKey(None, hk_id)
+        for hk_id, vk in HOTKEY_DEFS.items():
+            user32.RegisterHotKey(None, hk_id, self._mod, vk)
 
     def _run(self):
         self._thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
-        for hk_id, vk in HOTKEY_DEFS.items():
-            user32.RegisterHotKey(None, hk_id, MOD_CTRL_ALT, vk)
+        self._register_all()
+        self._ready.set()
         msg = wt.MSG()
         while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
             if msg.message == WM_HOTKEY:
-                hk_id = msg.wParam
-                cb = self.callbacks.get(hk_id)
+                cb = self.callbacks.get(int(msg.wParam))
                 if cb:
                     self.root.after(0, cb)
+            elif msg.message == WM_USER_REREGISTER:
+                self._register_all()
+
+    def change_modifier(self, modifier_flags):
+        self._mod = modifier_flags
+        if self._thread_id:
+            user32.PostThreadMessageW(self._thread_id, WM_USER_REREGISTER, 0, 0)
 
     def stop(self):
         if self._thread_id:
-            ctypes.windll.user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)
+            user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)
 
 
 # ─── Overlay ─────────────────────────────────────────────────────────────────
@@ -297,6 +328,7 @@ class SettingsWindow:
         self.config = config
         self.monitors = monitors
         self.overlay = overlay
+        self.hotkeys = None
         self.win = None
         self.editing = config["preset"]
 
@@ -310,7 +342,7 @@ class SettingsWindow:
     def _build(self):
         self.win = tk.Toplevel(self.root)
         self.win.title("Viseur — Paramètres")
-        self.win.geometry("440x740")
+        self.win.geometry("440x790")
         self.win.resizable(False, False)
         self.win.configure(bg=BG)
         self.win.attributes("-topmost", True)
@@ -334,6 +366,18 @@ class SettingsWindow:
                   highlightthickness=0, font=FONT_S, relief="flat")
         om["menu"].config(bg=BG3, fg=FG, activebackground=ACCENT, font=FONT_S)
         om.pack(fill="x")
+
+        # ── Raccourcis ──
+        self._section("Raccourcis", 0)
+        hf = tk.Frame(self.win, bg=BG)
+        hf.pack(fill="x", padx=15, pady=(0, 8))
+        tk.Label(hf, text="Modifier :", bg=BG, fg=FG, font=FONT, anchor="w").pack(side="left")
+        self.modifier_var = tk.StringVar(value=self.config.get("modifier", "Ctrl+Alt"))
+        mod_menu = tk.OptionMenu(hf, self.modifier_var, *MODIFIER_CHOICES.keys())
+        mod_menu.config(bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
+                        highlightthickness=0, font=FONT_S, relief="flat")
+        mod_menu["menu"].config(bg=BG3, fg=FG, activebackground=ACCENT, font=FONT_S)
+        mod_menu.pack(side="left", padx=(8, 0), fill="x", expand=True)
 
         # ── Presets ──
         self._section("Presets", 0)
@@ -523,6 +567,11 @@ class SettingsWindow:
         except Exception:
             self.config["monitor"] = 0
 
+        new_mod = self.modifier_var.get()
+        if new_mod != self.config.get("modifier") and self.hotkeys:
+            self.config["modifier"] = new_mod
+            self.hotkeys.change_modifier(MODIFIER_CHOICES[new_mod])
+
         self.overlay.apply()
         self.preset_btns[self.editing].config(text=f"{self.editing+1}\n{p['name'][:6]}")
 
@@ -619,7 +668,10 @@ def main():
         callbacks[10 + i] = lambda idx=i-1: switch_preset(idx)
     callbacks[20] = lambda: switch_preset(9)
 
-    hotkeys = HotkeyManager(root, callbacks)
+    mod_flags = MODIFIER_CHOICES.get(config.get("modifier", "Ctrl+Alt"),
+                                      MODIFIER_CHOICES["Ctrl+Alt"])
+    hotkeys = HotkeyManager(root, callbacks, mod_flags)
+    settings.hotkeys = hotkeys
     tray = TrayIcon(root, config, overlay, settings, shutdown)
 
     root.mainloop()

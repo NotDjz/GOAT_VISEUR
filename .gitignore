@@ -5,3 +5,4 @@ __pycache__/
 config.json
 .claude/
 CLAUDE.md
+CONTEXT.md
