@@ -7,10 +7,14 @@ Clic droit sur l'icône dans le system tray pour les options.
 ## Raccourcis
 | Raccourci | Action |
 |-----------|--------|
-| `Ctrl+Alt+S` | Ouvrir/fermer les paramètres |
-| `Ctrl+Alt+H` | Masquer/afficher le viseur |
-| `Ctrl+Alt+1-0` | Changer de preset (1-10) |
-| `Ctrl+Alt+Q` | Quitter |
+| `Mod+S` | Ouvrir/fermer les paramètres |
+| `Mod+H` | Masquer/afficher le viseur |
+| `Mod+1-0` | Changer de preset (1-10) |
+| `Mod+Q` | Quitter |
+
+`Mod` est le modificateur, `Ctrl+Alt` par défaut. Il se change dans les paramètres
+(`Ctrl+Alt`, `Ctrl+Shift`, `Alt+Shift` ou `Ctrl+Alt+Shift`) si l'un de ces raccourcis
+entre en conflit avec un jeu, et le choix est conservé dans `config.json`.
 
 ## Recompiler (optionnel)
 Nécessite Python 3 + `py -m pip install -r requirements.txt`

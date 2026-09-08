@@ -15,6 +15,9 @@ for size in sizes:
     draw.ellipse([mid - r, mid - r, mid + r, mid + r], fill=c)
     images.append(img)
 
-images[0].save("viseur.ico", format="ICO",
-               sizes=[(s, s) for s in sizes], append_images=images[1:])
+# L'encodeur ICO ecarte toute taille superieure a l'image source : on part donc
+# de la plus grande. append_images fournit les autres tailles deja dessinees, que
+# Pillow reprend telles quelles plutot que de les redimensionner depuis la 256.
+images[-1].save("viseur.ico", format="ICO",
+                sizes=[(s, s) for s in sizes], append_images=images[:-1])
 print("viseur.ico cree !")
