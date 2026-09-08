@@ -127,30 +127,60 @@ DEFAULT_PRESETS = [
 ]
 
 
-def _migrate_preset(p):
+def _migrate_preset(p, defaults):
+    """Migre l'ancien champ `shape` puis rebouche les cles absentes du preset."""
     if "shape" in p:
-        p["show_cross"] = p.pop("shape") not in ("none",)
-    p.setdefault("show_cross", True)
+        shape = p.pop("shape")
+        p.setdefault("show_cross", shape not in ("none",))
+        p.setdefault("show_circle", shape == "circle")
+        p.setdefault("show_dot", shape == "dot")
+    for key, value in defaults.items():
+        p.setdefault(key, value)
     return p
 
 
-def load_config():
+def _clamp_index(value, high=None):
+    """Indice entier borne a [0, high], avec repli sur 0 si la valeur n'en est pas un."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value if high is None else max(0, min(value, high))
+
+
+def load_config(monitor_count=None):
+    """Rend toujours un config exploitable : cles garanties, indices bornes.
+
+    `presets` et `preset` sont normalises ici une fois pour toutes, donc les
+    consommateurs les indexent sans garde. `monitor` n'est borne par le haut que
+    si `monitor_count` est fourni : seul l'appelant connait le nombre d'ecrans.
+    """
+    cfg = {}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-            for p in cfg.get("presets", []):
-                _migrate_preset(p)
-            while len(cfg.get("presets", [])) < 10:
-                cfg["presets"].append(DEFAULT_PRESETS[len(cfg["presets"])].copy())
-            cfg.setdefault("modifier", "Ctrl+Alt")
-            if cfg["modifier"] not in MODIFIER_CHOICES:
-                cfg["modifier"] = "Ctrl+Alt"
-            return cfg
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                cfg = loaded
         except Exception:
             pass
-    return {"monitor": 0, "preset": 0, "modifier": "Ctrl+Alt",
-            "presets": [p.copy() for p in DEFAULT_PRESETS]}
+
+    raw = cfg.get("presets")
+    if not isinstance(raw, list):
+        raw = []
+    cfg["presets"] = [
+        _migrate_preset(
+            raw[i] if i < len(raw) and isinstance(raw[i], dict) else defaults.copy(),
+            defaults,
+        )
+        for i, defaults in enumerate(DEFAULT_PRESETS)
+    ]
+
+    cfg["preset"] = _clamp_index(cfg.get("preset"), len(cfg["presets"]) - 1)
+    cfg["monitor"] = _clamp_index(
+        cfg.get("monitor"), None if monitor_count is None else monitor_count - 1
+    )
+    if not isinstance(cfg.get("modifier"), str) or cfg["modifier"] not in MODIFIER_CHOICES:
+        cfg["modifier"] = "Ctrl+Alt"
+    return cfg
 
 
 def save_config(cfg):
@@ -257,7 +287,7 @@ class Overlay:
 
     def apply(self):
         p = self.config["presets"][self.config["preset"]]
-        mon_idx = min(self.config["monitor"], len(self.monitors) - 1)
+        mon_idx = _clamp_index(self.config["monitor"], len(self.monitors) - 1)
         mon = self.monitors[mon_idx]
 
         s = p["size"]
@@ -360,7 +390,8 @@ class SettingsWindow:
             tag = " ★" if m["primary"] else ""
             labels.append(f"{i+1}: {m['name']} ({m['w']}×{m['h']}){tag}")
 
-        self.monitor_var = tk.StringVar(value=labels[min(self.config["monitor"], len(labels)-1)])
+        self.monitor_var = tk.StringVar(
+            value=labels[_clamp_index(self.config["monitor"], len(labels) - 1)])
         om = tk.OptionMenu(f, self.monitor_var, *labels)
         om.config(bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
                   highlightthickness=0, font=FONT_S, relief="flat")
@@ -634,8 +665,7 @@ def main():
                       "w": user32.GetSystemMetrics(0), "h": user32.GetSystemMetrics(1),
                       "primary": True}]
 
-    config = load_config()
-    config["monitor"] = min(config["monitor"], len(monitors) - 1)
+    config = load_config(len(monitors))
 
     root = tk.Tk()
     root.withdraw()
