@@ -1,11 +1,11 @@
 """
-Crosshair Overlay — viseur personnalisable, multi-écran, 10 presets.
+Crosshair Overlay — customizable, multi-monitor, 10 presets.
 
-Raccourcis :
-  Ctrl+Alt+S       → Ouvrir / fermer les paramètres
-  Ctrl+Alt+H       → Masquer / afficher le viseur
-  Ctrl+Alt+1 à 0   → Changer de preset (1-10, 0 = preset 10)
-  Ctrl+Alt+Q       → Quitter
+Hotkeys (the modifier defaults to Ctrl+Alt, change it in config.json):
+  Mod+S       → Open / close the settings window
+  Mod+H       → Hide / show the crosshair
+  Mod+1 to 0  → Switch preset (1-10, 0 = preset 10)
+  Mod+Q       → Quit
 """
 
 import json
@@ -39,7 +39,6 @@ except Exception:
 GWL_EXSTYLE = -20
 WS_EX_TRANSPARENT = 0x00000020
 WM_HOTKEY = 0x0312
-WM_USER_REREGISTER = 0x0400 + 1
 
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
@@ -104,139 +103,6 @@ def get_monitors():
     return monitors
 
 
-# ─── Processus au premier plan ───────────────────────────────────────────────
-
-PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-kernel32 = ctypes.windll.kernel32
-
-
-def foreground_exe():
-    """Executable de la fenetre au premier plan, ou None.
-
-    Rend None pour nos propres fenetres : sans cela, ouvrir les parametres
-    ferait de Viseur lui-meme le « jeu au premier plan ».
-    """
-    try:
-        hwnd = user32.GetForegroundWindow()
-        if not hwnd:
-            return None
-        pid = wt.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if not pid.value or pid.value == kernel32.GetCurrentProcessId():
-            return None
-        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
-        if not handle:
-            return None
-        try:
-            buf = ctypes.create_unicode_buffer(32768)
-            size = wt.DWORD(len(buf))
-            if not kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
-                return None
-            name = buf.value.rsplit("\\", 1)[-1].lower()
-            # un substitut UTF-16 non apparie ferait echouer l'ecriture de
-            # config.json apres que open(..., "w") l'ait deja vide.
-            name.encode("utf-8")
-            return name
-        finally:
-            kernel32.CloseHandle(handle)
-    except Exception:
-        return None
-
-
-# ─── Demarrage avec Windows (raccourci .lnk, sans registre) ──────────────────
-
-CLSID_SHELL_LINK = "{00021401-0000-0000-C000-000000000046}"
-IID_ISHELL_LINK_W = "{000214F9-0000-0000-C000-000000000046}"
-IID_IPERSIST_FILE = "{0000010B-0000-0000-C000-000000000046}"
-
-
-class _GUID(ctypes.Structure):
-    _fields_ = [("d1", wt.DWORD), ("d2", wt.WORD), ("d3", wt.WORD), ("d4", ctypes.c_byte * 8)]
-
-
-def _startup_path():
-    """Chemin du raccourci de demarrage, ou None si APPDATA est introuvable."""
-    appdata = os.environ.get("APPDATA")
-    if not appdata:
-        return None
-    return os.path.join(appdata, "Microsoft", "Windows",
-                        "Start Menu", "Programs", "Startup", "Viseur.lnk")
-
-
-def _com_call(ptr, index, argtypes=(), *args):
-    """Appelle la methode d'indice `index` dans la vtable de l'interface COM.
-
-    Le pointeur n'est donne qu'une fois : le passer en premier argument de la
-    methode est l'affaire de cette fonction, pas de l'appelant.
-    """
-    vtable = ctypes.cast(ptr, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
-    proto = ctypes.WINFUNCTYPE(ctypes.HRESULT, ctypes.c_void_p, *argtypes)
-    return proto(vtable[index])(ptr, *args)
-
-
-def _write_shortcut(path, target, workdir, arguments=None):
-    """Ecrit un .lnk via IShellLink. Pas de subprocess, pas de dependance."""
-    ole32 = ctypes.OleDLL("ole32")
-
-    def guid(text):
-        g = _GUID()
-        ole32.CLSIDFromString(ctypes.c_wchar_p(text), ctypes.byref(g))
-        return g
-
-    ole32.CoInitialize(None)
-    try:
-        link = ctypes.c_void_p()
-        ole32.CoCreateInstance(ctypes.byref(guid(CLSID_SHELL_LINK)), None, 1,
-                               ctypes.byref(guid(IID_ISHELL_LINK_W)), ctypes.byref(link))
-        try:
-            _com_call(link, 20, (ctypes.c_wchar_p,), target)             # SetPath
-            _com_call(link, 9, (ctypes.c_wchar_p,), workdir)             # SetWorkingDirectory
-            if arguments:
-                _com_call(link, 11, (ctypes.c_wchar_p,), arguments)      # SetArguments
-
-            persist = ctypes.c_void_p()
-            _com_call(link, 0, (ctypes.c_void_p, ctypes.c_void_p),
-                      ctypes.byref(guid(IID_IPERSIST_FILE)), ctypes.byref(persist))
-            try:
-                _com_call(persist, 6, (ctypes.c_wchar_p, ctypes.c_int), path, True)
-            finally:
-                _com_call(persist, 2)                                     # Release
-        finally:
-            _com_call(link, 2)
-    finally:
-        ole32.CoUninitialize()
-
-
-def startup_enabled():
-    path = _startup_path()
-    return bool(path) and os.path.exists(path)
-
-
-def set_startup(enabled):
-    """Cree ou supprime le raccourci de demarrage. Rend l'etat reellement obtenu."""
-    path = _startup_path()
-    if not path:
-        return False
-    try:
-        if not enabled:
-            if os.path.exists(path):
-                os.remove(path)
-            return False
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        if getattr(sys, "frozen", False):
-            _write_shortcut(path, sys.executable, SCRIPT_DIR)
-        else:
-            launcher = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-            if not os.path.exists(launcher):
-                launcher = sys.executable
-            _write_shortcut(path, launcher, SCRIPT_DIR,
-                            '"%s"' % os.path.join(SCRIPT_DIR, "crosshair.pyw"))
-        return os.path.exists(path)
-    except Exception:
-        return os.path.exists(path)
-
-
-
 # ─── Config ──────────────────────────────────────────────────────────────────
 
 DEFAULT_PRESETS = [
@@ -267,6 +133,7 @@ DEFAULT_PRESETS = [
 # invisible, alors qu'il s'affiche normalement dans l'apercu. Aucune entree ne
 # doit pouvoir l'imposer.
 CHROMA_KEY = "#FF00FE"
+CHROMA_WARNING = ("%s is the transparency color: the crosshair would be invisible" % CHROMA_KEY)
 
 _DIGITS = "0123456789"
 _HEXDIGITS = "0123456789abcdefABCDEF"
@@ -328,10 +195,9 @@ def _clamp_index(value, high=None):
 def load_config(monitor_count=None):
     """Rend toujours un config exploitable : cles garanties, indices bornes.
 
-    `presets`, `preset` et `profiles` sont normalises ici une fois pour toutes,
-    donc les consommateurs les indexent sans garde. `monitor` n'est borne par le
-    haut que si `monitor_count` est fourni : seul l'appelant connait le nombre
-    d'ecrans.
+    `presets` et `preset` sont normalises ici une fois pour toutes, donc les
+    consommateurs les indexent sans garde. `monitor` n'est borne par le haut que
+    si `monitor_count` est fourni : seul l'appelant connait le nombre d'ecrans.
     """
     cfg = {}
     if os.path.exists(CONFIG_FILE):
@@ -360,21 +226,30 @@ def load_config(monitor_count=None):
     )
     if not isinstance(cfg.get("modifier"), str) or cfg["modifier"] not in MODIFIER_CHOICES:
         cfg["modifier"] = "Ctrl+Alt"
-
-    profiles = cfg.get("profiles")
-    if not isinstance(profiles, dict):
-        profiles = {}
-    cfg["profiles"] = {
-        exe.strip().lower(): _clamp_index(idx, len(cfg["presets"]) - 1)
-        for exe, idx in profiles.items()
-        if isinstance(exe, str) and exe.strip()
-    }
+    # vestige des profils par jeu : la retirer plutot que la recopier a chaque
+    # sauvegarde, sinon elle survit indefiniment dans les fichiers existants.
+    cfg.pop("profiles", None)
     return cfg
 
 
 def save_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    """Ecrit par un fichier temporaire, puis remplace.
+
+    Ecrire directement dans CONFIG_FILE le tronque avant la serialisation : un
+    nom de preset que l'encodeur UTF-8 refuse laisserait alors un fichier
+    mutile a la place des dix presets.
+    """
+    tmp = CONFIG_FILE + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, CONFIG_FILE)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ─── Codes de viseur partageables ────────────────────────────────────────────
@@ -407,42 +282,41 @@ def preset_to_code(p):
 
 def _parse_hex6(text):
     if len(text) != 6 or not all(c in _HEXDIGITS for c in text):
-        raise ValueError("couleur invalide : %s" % text[:12])
+        raise ValueError("invalid color: %s" % text[:12])
     color = "#" + text.upper()
     if color == CHROMA_KEY:
-        raise ValueError("%s est la couleur de transparence : le viseur serait invisible"
-                         % CHROMA_KEY)
+        raise ValueError(CHROMA_WARNING)
     return color
 
 
 def _parse_int(text, key):
     # ni signe, ni espace, ni chiffre Unicode exotique : int() les accepterait.
     if not text or not all(c in _DIGITS for c in text):
-        raise ValueError("nombre invalide : %s" % text[:12])
+        raise ValueError("invalid number: %s" % text[:12])
     value = int(text)
     low, high = SLIDER_RANGES[key]
     if not low <= value <= high:
-        raise ValueError("%s hors bornes (%d-%d) : %d" % (key, low, high, value))
+        raise ValueError("%s out of range (%d-%d): %d" % (key, low, high, value))
     return value
 
 
 def code_to_preset(code):
     """Rend les champs d'un preset, ou leve ValueError. Ne porte pas le nom."""
     if not isinstance(code, str):
-        raise ValueError("code absent")
+        raise ValueError("no code")
     code = code.strip()
     if not code:
-        raise ValueError("code vide")
+        raise ValueError("empty code")
     if len(code) > CODE_MAX_LEN:
-        raise ValueError("code trop long")
+        raise ValueError("code too long")
     parts = code.split("-")
     if len(parts) != 4 + len(CODE_FIELDS):
-        raise ValueError("code incomplet ou mal decoupe")
+        raise ValueError("wrong number of fields")
     if parts[0].upper() != CODE_PREFIX:
-        raise ValueError("prefixe attendu %s" % CODE_PREFIX)
+        raise ValueError("expected prefix %s" % CODE_PREFIX)
 
     if parts[1] not in _FLAG_VALUES:
-        raise ValueError("drapeaux de forme invalides")
+        raise ValueError("invalid shape flags")
     flags = int(parts[1])
 
     values = {"color": _parse_hex6(parts[2]), "outline": _parse_hex6(parts[3])}
@@ -514,74 +388,10 @@ class HotkeyManager:
                 cb = self.callbacks.get(int(msg.wParam))
                 if cb:
                     self.root.after(0, cb)
-            elif msg.message == WM_USER_REREGISTER:
-                self._register_all()
-
-    def change_modifier(self, modifier_flags):
-        self._mod = modifier_flags
-        if self._thread_id:
-            user32.PostThreadMessageW(self._thread_id, WM_USER_REREGISTER, 0, 0)
 
     def stop(self):
         if self._thread_id:
             user32.PostThreadMessageW(self._thread_id, 0x0012, 0, 0)
-
-
-# ─── Profils par jeu ─────────────────────────────────────────────────────────
-
-class ProfileWatcher:
-    """Bascule de preset selon le jeu au premier plan.
-
-    Sonde en continu, meme sans profil enregistre : c'est ce sondage qui retient
-    le dernier jeu vu, dont le bouton « associer » a besoin pour creer le tout
-    premier profil. Trois appels Win32 toutes les deux secondes.
-    """
-
-    INTERVAL_MS = 2000
-
-    def __init__(self, root, config, on_switch):
-        self.root = root
-        self.config = config
-        self.on_switch = on_switch
-        self.last_seen = None      # dernier executable etranger observe
-        self.manual_preset = config["preset"]
-        self.active = None         # profil actuellement declenche
-        self.applied = None        # preset que nous pilotons, None si on a lache
-        self.root.after(0, self._tick)
-
-    def _tick(self):
-        exe = foreground_exe()
-        if exe:
-            self.last_seen = exe
-            target = self.config["profiles"].get(exe)
-            if target is not None:
-                if self.active != exe:
-                    if self.active is None:
-                        # on quitte le bureau : retenir le preset choisi a la main
-                        self.manual_preset = self.config["preset"]
-                    self.active = exe
-                    self.applied = target
-                    self.on_switch(target)
-                elif self.applied is not None and self.config["preset"] != self.applied:
-                    # tray, raccourci ou Enregistrer ont change le preset pendant
-                    # le jeu : le geste humain prime, on cesse de piloter jusqu'a
-                    # ce qu'on sorte de ce jeu, et ce choix devient le choix manuel
-                    # a restaurer plus tard.
-                    self.applied = None
-                    self.manual_preset = self.config["preset"]
-            elif self.active is not None:
-                driving = self.applied is not None
-                self.active = None
-                self.applied = None
-                if driving:
-                    # on ne restaure que si l'utilisateur n'a pas deja repris la main
-                    self.on_switch(self.manual_preset)
-        self.root.after(self.INTERVAL_MS, self._tick)
-
-    def forget(self, exe):
-        if self.active == exe:
-            self.active = None
-            self.applied = None
 
 
 # ─── Overlay ─────────────────────────────────────────────────────────────────
@@ -628,6 +438,9 @@ class Overlay:
         self._draw_crosshair(self.canvas, ws // 2, ws // 2, p)
 
     def _draw_crosshair(self, canvas, cx, cy, p):
+        # Quel reglage sert a quelle forme est aussi decrit dans
+        # SettingsWindow.SLIDER_SPECS, qui s'en sert pour griser : toucher l'un
+        # sans l'autre laisse un reglage actif qui ne fait rien, ou l'inverse.
         canvas.delete("all")
         color = p["color"]
         outline = p["outline"]
@@ -678,13 +491,24 @@ class Overlay:
 # ─── Settings GUI ────────────────────────────────────────────────────────────
 
 class SettingsWindow:
+    """Une seule page : ecran, presets, nom, reglages, apercu, code, Save."""
+
+    # Cle, libelle, et formes qui utilisent ce reglage. La troisieme colonne doit
+    # rester d'accord avec Overlay._draw_crosshair() : un reglage qu'aucune forme
+    # cochee n'utilise est grise, sans quoi on peut le bouger sans rien voir.
+    # L'ordre est celui de la grille 2x2, pas celui du code VSR1.
+    SLIDER_SPECS = (
+        ("size", "Size", ("cross", "circle")),
+        ("gap", "Gap", ("cross",)),
+        ("thickness", "Thickness", ("cross", "circle")),
+        ("dot_radius", "Dot size", ("dot",)),
+    )
+
     def __init__(self, root, config, monitors, overlay):
         self.root = root
         self.config = config
         self.monitors = monitors
         self.overlay = overlay
-        self.hotkeys = None
-        self.watcher = None
         self.win = None
         self.editing = config["preset"]
 
@@ -693,71 +517,54 @@ class SettingsWindow:
             self.win.destroy()
             self.win = None
             return
-        # le preset a pu changer depuis la derniere ouverture (raccourci, tray,
-        # profil) : repartir de celui qui est reellement actif, sinon Appliquer
-        # ramenerait le viseur a un preset perime.
+        # le preset a pu changer depuis la derniere ouverture (raccourci, tray)
         self.editing = _clamp_index(self.config["preset"], len(self.config["presets"]) - 1)
         self._build()
 
+    # ── Construction ─────────────────────────────────────────────────────────
+
     def _build(self):
         self.win = tk.Toplevel(self.root)
-        self.win.title("Viseur — Paramètres")
-        self.win.geometry("460x820")
-        self.win.resizable(False, False)
+        self.win.title("Viseur — Settings")
+        # Pas de geometry fixe : la hauteur requise par le contenu depend de la
+        # mise a l'echelle DPI (682 px a 100 %, 787 a 125 %, 864 a 150 %), et une
+        # taille en dur y ferait sortir le bouton Save de la fenetre. On laisse Tk
+        # dimensionner, et on autorise l'ajustement vertical comme recours.
+        self.win.resizable(False, True)
         self.win.configure(bg=BG)
         self.win.attributes("-topmost", True)
         self._icon_photo = ImageTk.PhotoImage(create_tray_icon_image(32))
         self.win.iconphoto(False, self._icon_photo)
-        self.win.protocol("WM_DELETE_WINDOW", lambda: (self.win.destroy(), setattr(self, "win", None)))
+        self.win.protocol("WM_DELETE_WINDOW",
+                          lambda: (self.win.destroy(), setattr(self, "win", None)))
 
-        # ── Onglets ──
-        bar = tk.Frame(self.win, bg=BG)
-        bar.pack(fill="x", padx=15, pady=(12, 10))
-        body = tk.Frame(self.win, bg=BG)
-        body.pack(fill="both", expand=True)
+        self._build_screen()
+        self._build_presets()
+        self._build_name()
+        self._build_settings()
+        self._build_preview()
+        self._build_code()
+        self._build_actions()
 
-        self.tab_btns = {}
-        self.tabs = {}
-        for key, label in (("viseur", "Viseur"), ("profils", "Profils"), ("general", "Général")):
-            btn = tk.Button(bar, text=label, command=lambda k=key: self._show_tab(k),
-                            bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
-                            relief="flat", bd=0, font=FONT, padx=16, pady=4, cursor="hand2")
-            btn.pack(side="left", padx=(0, 3))
-            self.tab_btns[key] = btn
-            self.tabs[key] = tk.Frame(body, bg=BG)
-
-        self._build_tab_viseur(self.tabs["viseur"])
-        self._build_tab_profils(self.tabs["profils"])
-        self._build_tab_general(self.tabs["general"])
-
-        # ── Barre d'action commune ──
-        bf = tk.Frame(self.win, bg=BG)
-        bf.pack(fill="x", padx=15, pady=(6, 12))
-        tk.Button(bf, text="Appliquer", command=self._apply, bg=BG3, fg=FG,
-                  font=FONT, relief="flat", padx=14, pady=3, cursor="hand2").pack(side="left")
-        tk.Button(bf, text="Enregistrer", command=self._save, bg=ACCENT, fg="#1A1207",
-                  font=FONT_B, relief="flat", padx=14, pady=3,
-                  cursor="hand2").pack(side="left", padx=(8, 0))
-        self.status = tk.Label(bf, text="", bg=BG, fg=FG2, font=FONT_S, anchor="e")
-        self.status.pack(side="right", fill="x", expand=True)
-
-        self._show_tab("viseur")
         self._load_preset(self.editing)
         self.win.lift()
         self.win.focus_force()
 
-    # ── Onglet « Viseur » ────────────────────────────────────────────────────
+    def _section(self, text, pady_top=8, bg=BG, fill="x"):
+        """Titre de section, puis le cadre deja empaquete qui recevra son contenu."""
+        tk.Label(self.win, text=text, bg=BG, fg=ACCENT, font=FONT_B,
+                 anchor="w").pack(fill="x", padx=15, pady=(pady_top, 2))
+        frame = tk.Frame(self.win, bg=bg)
+        frame.pack(fill=fill, padx=15)
+        return frame
 
-    def _build_tab_viseur(self, tab):
-        self._section(tab, "Écran", 0)
-        f = tk.Frame(tab, bg=BG)
-        f.pack(fill="x", padx=15, pady=(0, 8))
+    def _build_screen(self):
+        f = self._section("Screen", 12)
 
         labels = []
         for i, m in enumerate(self.monitors):
             tag = " ★" if m["primary"] else ""
             labels.append(f"{i+1}: {m['name']} ({m['w']}×{m['h']}){tag}")
-
         self.monitor_var = tk.StringVar(
             value=labels[_clamp_index(self.config["monitor"], len(labels) - 1)])
         om = tk.OptionMenu(f, self.monitor_var, *labels)
@@ -766,18 +573,16 @@ class SettingsWindow:
         om["menu"].config(bg=BG3, fg=FG, activebackground=ACCENT, font=FONT_S)
         om.pack(fill="x")
 
-        self._section(tab, "Presets", 0)
-        pf = tk.Frame(tab, bg=BG)
-        pf.pack(fill="x", padx=15, pady=(0, 8))
+    def _build_presets(self):
+        pf = self._section("Presets")
 
         self.preset_btns = []
         for i in range(10):
-            short = self.config["presets"][i]["name"][:6]
             btn = tk.Button(
-                pf, text=f"{i+1}\n{short}", width=5, height=2,
-                command=lambda idx=i: self._select_preset(idx),
+                pf, text=self._preset_label(i),
+                height=2, command=lambda idx=i: self._select_preset(idx),
                 bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
-                relief="flat", font=FONT_S, bd=0,
+                relief="flat", font=FONT_S, bd=0, cursor="hand2",
             )
             btn.grid(row=i // 5, column=i % 5, padx=2, pady=2, sticky="ew")
             self.preset_btns.append(btn)
@@ -785,252 +590,113 @@ class SettingsWindow:
             pf.columnconfigure(c, weight=1)
         self._highlight_preset()
 
-        self._section(tab, "Paramètres", 0)
-        sf = tk.Frame(tab, bg=BG2, bd=1, relief="flat")
-        sf.pack(fill="x", padx=15, pady=(0, 8))
-
-        row = tk.Frame(sf, bg=BG2)
-        row.pack(fill="x", padx=10, pady=(8, 4))
-        tk.Label(row, text="Nom :", bg=BG2, fg=FG, font=FONT, width=10, anchor="w").pack(side="left")
+    def _build_name(self):
+        f = self._section("Name")
         self.name_var = tk.StringVar()
-        tk.Entry(row, textvariable=self.name_var, bg=BG3, fg=FG, insertbackground=FG,
-                 font=FONT, relief="flat", bd=2).pack(side="left", fill="x", expand=True)
+        tk.Entry(f, textvariable=self.name_var, bg=BG3, fg=FG, insertbackground=FG,
+                 font=FONT, relief="flat", bd=3).pack(fill="x")
 
+    def _build_settings(self):
+        sf = self._section("Settings", bg=BG2)
+
+        # Formes : trois interrupteurs sur une ligne
         row = tk.Frame(sf, bg=BG2)
-        row.pack(fill="x", padx=10, pady=4)
-        tk.Label(row, text="Forme :", bg=BG2, fg=FG, font=FONT, width=10, anchor="w").pack(side="left")
-        self.cross_var = tk.BooleanVar()
-        self.circle_var = tk.BooleanVar()
-        self.dot_var = tk.BooleanVar()
-        for text, var in [("Croix", self.cross_var), ("Cercle", self.circle_var),
-                          ("Point", self.dot_var)]:
+        row.pack(fill="x", padx=10, pady=(9, 5))
+        tk.Label(row, text="Shape", bg=BG2, fg=FG, font=FONT,
+                 width=9, anchor="w").pack(side="left")
+        self.shape_vars = {}
+        for key, text in (("cross", "Cross"), ("circle", "Circle"), ("dot", "Dot")):
+            var = tk.BooleanVar()
+            self.shape_vars[key] = var
             tk.Checkbutton(row, text=text, variable=var, bg=BG2, fg=FG,
                            selectcolor=BG3, activebackground=BG2, activeforeground=FG,
-                           font=FONT, command=self._on_change).pack(side="left", padx=(0, 10))
+                           font=FONT, command=self._on_shape_change,
+                           cursor="hand2").pack(side="left", padx=(0, 12))
 
+        # Reglages : grille 2x2, moitie moins haute que quatre lignes empilees
+        grid = tk.Frame(sf, bg=BG2)
+        grid.pack(fill="x", padx=10, pady=(0, 3))
+        self.sliders = {}
+        for index, (key, text, _owners) in enumerate(self.SLIDER_SPECS):
+            lo, hi = SLIDER_RANGES[key]
+            cell = tk.Frame(grid, bg=BG2)
+            cell.grid(row=index // 2, column=index % 2, sticky="ew", pady=2,
+                      padx=(0, 10) if index % 2 == 0 else (0, 0))
+            name = tk.Label(cell, text=text, bg=BG2, fg=FG, font=FONT_S,
+                            width=9, anchor="w")
+            name.pack(side="left")
+            value = tk.Label(cell, text="0", bg=BG2, fg=ACCENT, font=FONT_MONO,
+                             width=3, anchor="e")
+            value.pack(side="right")
+            scale = tk.Scale(
+                cell, from_=lo, to=hi, orient="horizontal", showvalue=False,
+                bg=BG2, fg=FG, troughcolor=BG3, activebackground=ACCENT,
+                highlightthickness=0, bd=0, length=110, sliderlength=14,
+                command=lambda v, lbl=value: (lbl.config(text=str(int(float(v)))),
+                                              self._update_preview()),
+            )
+            scale.pack(side="left", fill="x", expand=True, padx=(4, 4))
+            self.sliders[key] = (scale, value, name)
+        for c in range(2):
+            grid.columnconfigure(c, weight=1)
+
+        # Couleurs : les deux sur une ligne
+        row = tk.Frame(sf, bg=BG2)
+        row.pack(fill="x", padx=10, pady=(4, 10))
         self.colors = {}
-        for label, which in (("Couleur :", "color"), ("Contour :", "outline")):
-            row = tk.Frame(sf, bg=BG2)
-            row.pack(fill="x", padx=10, pady=4)
-            tk.Label(row, text=label, bg=BG2, fg=FG, font=FONT,
-                     width=10, anchor="w").pack(side="left")
-            swatch = tk.Canvas(row, width=30, height=20, bd=1, relief="solid", cursor="hand2")
+        for which, text in (("color", "Fill"), ("outline", "Outline")):
+            tk.Label(row, text=text, bg=BG2, fg=FG, font=FONT,
+                     width=9 if which == "color" else 8,
+                     anchor="w").pack(side="left")
+            swatch = tk.Canvas(row, width=28, height=18, bd=1, relief="solid",
+                               cursor="hand2", highlightthickness=0)
             swatch.pack(side="left", padx=(0, 5))
             swatch.bind("<Button-1>", lambda e, w=which: self._pick_color(w))
             value = tk.Label(row, bg=BG2, fg=FG2, font=FONT_MONO)
-            value.pack(side="left")
+            value.pack(side="left", padx=(0, 18))
             self.colors[which] = (swatch, value)
 
-        self.sliders = {}
-        for label, key in (("Taille", "size"), ("Épaisseur", "thickness"),
-                           ("Espace", "gap"), ("Rayon point", "dot_radius")):
-            lo, hi = SLIDER_RANGES[key]
-            row = tk.Frame(sf, bg=BG2)
-            row.pack(fill="x", padx=10, pady=2)
-            tk.Label(row, text=f"{label} :", bg=BG2, fg=FG, font=FONT,
-                     width=10, anchor="w").pack(side="left")
-            val_label = tk.Label(row, text="0", bg=BG2, fg=ACCENT, font=FONT_MONO,
-                                 width=3, anchor="e")
-            val_label.pack(side="right")
-            scale = tk.Scale(
-                row, from_=lo, to=hi, orient="horizontal", showvalue=False,
-                bg=BG2, fg=FG, troughcolor=BG3, activebackground=ACCENT,
-                highlightthickness=0, bd=0, length=200,
-                command=lambda v, lbl=val_label: (lbl.config(text=str(int(float(v)))),
-                                                  self._on_change()),
-            )
-            scale.pack(side="left", fill="x", expand=True, padx=(5, 5))
-            self.sliders[key] = (scale, val_label)
-
-        tk.Frame(sf, bg=BG2, height=8).pack()
-
-        self._section(tab, "Aperçu", 0)
-        pv = tk.Frame(tab, bg=BG)
-        pv.pack(pady=(0, 8))
-        self.preview = tk.Canvas(pv, width=120, height=120, bg="#111111",
+    def _build_preview(self):
+        f = self._section("Preview", fill="none")
+        self.preview = tk.Canvas(f, width=120, height=120, bg="#111111",
                                  highlightthickness=1, highlightbackground=BG3)
         self.preview.pack()
 
-        self._section(tab, "Code de viseur", 0)
-        cf = tk.Frame(tab, bg=BG)
-        cf.pack(fill="x", padx=15, pady=(0, 8))
+    def _build_code(self):
+        f = self._section("Crosshair code")
         self.code_var = tk.StringVar()
-        tk.Entry(cf, textvariable=self.code_var, bg=BG3, fg=FG, insertbackground=FG,
-                 font=FONT_MONO, relief="flat", bd=2).pack(fill="x", pady=(0, 4))
-        btns = tk.Frame(cf, bg=BG)
-        btns.pack(fill="x")
-        tk.Button(btns, text="Copier", command=self._copy_code, bg=BG3, fg=FG,
-                  font=FONT_S, relief="flat", padx=10, cursor="hand2").pack(side="left")
-        tk.Button(btns, text="Coller", command=self._paste_code, bg=BG3, fg=FG,
-                  font=FONT_S, relief="flat", padx=10,
-                  cursor="hand2").pack(side="left", padx=(4, 0))
-        tk.Button(btns, text="Importer dans ce preset", command=self._import_code,
-                  bg=BG3, fg=FG, font=FONT_S, relief="flat", padx=10,
-                  cursor="hand2").pack(side="left", padx=(4, 0))
+        tk.Entry(f, textvariable=self.code_var, state="readonly",
+                 readonlybackground=BG3, fg=FG, font=FONT_MONO,
+                 relief="flat", bd=3).pack(fill="x", pady=(0, 5))
+        row = tk.Frame(f, bg=BG)
+        row.pack(fill="x")
+        tk.Button(row, text="Copy", command=self._copy_code, bg=BG3, fg=FG,
+                  activebackground=BG2, activeforeground=FG, font=FONT_S,
+                  relief="flat", bd=0, padx=14, pady=2, cursor="hand2").pack(side="left")
+        tk.Button(row, text="Paste", command=self._paste_code, bg=BG3, fg=FG,
+                  activebackground=BG2, activeforeground=FG, font=FONT_S,
+                  relief="flat", bd=0, padx=14, pady=2,
+                  cursor="hand2").pack(side="left", padx=(5, 0))
 
-    # ── Onglet « Profils » ───────────────────────────────────────────────────
+    def _build_actions(self):
+        f = tk.Frame(self.win, bg=BG)
+        f.pack(fill="x", padx=15, pady=(14, 12))
+        tk.Button(f, text="Save", command=self._save, bg=ACCENT, fg="#1A1207",
+                  activebackground=ACCENT, activeforeground="#1A1207",
+                  font=FONT_B, relief="flat", bd=0, padx=22, pady=4,
+                  cursor="hand2").pack(side="left")
+        self.status = tk.Label(f, text="", bg=BG, fg=FG2, font=FONT_S, anchor="e")
+        self.status.pack(side="right", fill="x", expand=True, padx=(10, 0))
 
-    def _build_tab_profils(self, tab):
-        self._section(tab, "Bascule automatique", 0)
-        tk.Label(tab, text="Le preset associé s'active dès que le jeu passe au premier plan,\n"
-                           "et le réglage manuel revient quand on en sort.",
-                 bg=BG, fg=FG2, font=FONT_S, justify="left",
-                 anchor="w").pack(fill="x", padx=15, pady=(0, 8))
+    # ── Etat ─────────────────────────────────────────────────────────────────
 
-        add = tk.Frame(tab, bg=BG)
-        add.pack(fill="x", padx=15, pady=(0, 8))
-        self.seen_label = tk.Label(add, text="Aucun jeu détecté pour l'instant",
-                                   bg=BG2, fg=FG, font=FONT_MONO, anchor="w", padx=8, pady=5)
-        self.seen_label.pack(fill="x", pady=(0, 4))
-        tk.Button(add, text="Associer ce jeu au preset affiché", command=self._add_profile,
-                  bg=BG3, fg=FG, font=FONT, relief="flat", padx=12, pady=3,
-                  cursor="hand2").pack(fill="x")
-
-        self._section(tab, "Associations", 6)
-        self.profiles_frame = tk.Frame(tab, bg=BG)
-        self.profiles_frame.pack(fill="both", expand=True, padx=15, pady=(0, 8))
-
-    def _refresh_profiles(self):
-        for child in self.profiles_frame.winfo_children():
-            child.destroy()
-
-        seen = self.watcher.last_seen if self.watcher else None
-        self.seen_label.config(text=seen or "Aucun jeu détecté pour l'instant")
-
-        profiles = self.config["profiles"]
-        if not profiles:
-            tk.Label(self.profiles_frame, text="Aucune association.",
-                     bg=BG, fg=FG2, font=FONT_S, anchor="w").pack(fill="x")
-            return
-
-        for exe in sorted(profiles):
-            idx = profiles[exe]
-            row = tk.Frame(self.profiles_frame, bg=BG2)
-            row.pack(fill="x", pady=1)
-            tk.Label(row, text=exe, bg=BG2, fg=FG, font=FONT_MONO,
-                     anchor="w", padx=8, pady=4).pack(side="left", fill="x", expand=True)
-            tk.Label(row, text=f"{idx + 1}. {self.config['presets'][idx]['name']}",
-                     bg=BG2, fg=ACCENT, font=FONT_S, anchor="e", padx=8).pack(side="left")
-            tk.Button(row, text="✕", command=lambda e=exe: self._remove_profile(e),
-                      bg=BG2, fg=FG2, activebackground=BG3, activeforeground=FG,
-                      font=FONT_S, relief="flat", bd=0, padx=8,
-                      cursor="hand2").pack(side="right")
-
-    def _add_profile(self):
-        seen = self.watcher.last_seen if self.watcher else None
-        if not seen:
-            self._set_status("Passe d'abord sur ton jeu, puis reviens ici.")
-            return
-        self.config["profiles"][seen] = self.editing
-        self._refresh_profiles()
-        self._set_status(f"{seen} → preset {self.editing + 1} — Enregistrer pour le garder")
-
-    def _remove_profile(self, exe):
-        self.config["profiles"].pop(exe, None)
-        if self.watcher:
-            self.watcher.forget(exe)
-        self._refresh_profiles()
-        self._set_status(f"{exe} dissocié — Enregistrer pour le garder")
-
-    # ── Onglet « Général » ───────────────────────────────────────────────────
-
-    def _build_tab_general(self, tab):
-        self._section(tab, "Raccourcis", 0)
-        hf = tk.Frame(tab, bg=BG)
-        hf.pack(fill="x", padx=15, pady=(0, 8))
-        tk.Label(hf, text="Modifier :", bg=BG, fg=FG, font=FONT, anchor="w").pack(side="left")
-        self.modifier_var = tk.StringVar(value=self.config.get("modifier", "Ctrl+Alt"))
-        mod_menu = tk.OptionMenu(hf, self.modifier_var, *MODIFIER_CHOICES.keys())
-        mod_menu.config(bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
-                        highlightthickness=0, font=FONT_S, relief="flat")
-        mod_menu["menu"].config(bg=BG3, fg=FG, activebackground=ACCENT, font=FONT_S)
-        mod_menu.pack(side="left", padx=(8, 0), fill="x", expand=True)
-
-        tk.Label(tab, text="S, H, Q et 1 à 0 se combinent avec ce modificateur.",
-                 bg=BG, fg=FG2, font=FONT_S, anchor="w").pack(fill="x", padx=15, pady=(0, 8))
-
-        self._section(tab, "Démarrage", 6)
-        self.startup_var = tk.BooleanVar(value=startup_enabled())
-        tk.Checkbutton(tab, text="Lancer Viseur à l'ouverture de session",
-                       variable=self.startup_var, command=self._toggle_startup,
-                       bg=BG, fg=FG, selectcolor=BG3, activebackground=BG,
-                       activeforeground=FG, font=FONT,
-                       anchor="w").pack(fill="x", padx=15)
-        tk.Label(tab, text="Ajoute un raccourci dans le dossier Démarrage.\n"
-                           "Aucune écriture dans le registre.",
-                 bg=BG, fg=FG2, font=FONT_S, justify="left",
-                 anchor="w").pack(fill="x", padx=15, pady=(2, 8))
-
-    def _toggle_startup(self):
-        wanted = self.startup_var.get()
-        actual = set_startup(wanted)
-        self.startup_var.set(actual)
-        if actual == wanted:
-            self._set_status("Démarrage activé" if actual else "Démarrage désactivé")
-        else:
-            self._set_status("Impossible de modifier le démarrage")
-
-    # ── Codes de viseur ──────────────────────────────────────────────────────
-
-    def _copy_code(self):
-        code = preset_to_code(self._read_current())
-        self.code_var.set(code)
-        self.win.clipboard_clear()
-        self.win.clipboard_append(code)
-        self._set_status("Code copié")
-
-    def _paste_code(self):
-        try:
-            self.code_var.set(self.win.clipboard_get().strip())
-            self._set_status("Code collé, clique sur Importer")
-        except Exception:
-            self._set_status("Presse-papiers vide")
-
-    def _import_code(self):
-        try:
-            values = code_to_preset(self.code_var.get())
-        except ValueError as err:
-            self._set_status("Code refusé : %s" % err)
-            return
-        self.cross_var.set(values["show_cross"])
-        self.circle_var.set(values["show_circle"])
-        self.dot_var.set(values["show_dot"])
-        for which in self.colors:
-            self._set_color(which, values[which])
-        for key in CODE_FIELDS:
-            self.sliders[key][0].set(values[key])
-        self._update_preview()
-        self._set_status("Code importé — Enregistrer pour le garder")
-
-    def _set_color(self, which, hex_color):
-        swatch, value = self.colors[which]
-        swatch.config(bg=hex_color)
-        value.config(text=hex_color)
-
-    def _set_status(self, text):
-        if getattr(self, "status", None):
-            self.status.config(text=text[:80])
-
-    def _section(self, parent, text, pady_top=5):
-        tk.Label(parent, text=text, bg=BG, fg=ACCENT, font=FONT_B,
-                 anchor="w").pack(fill="x", padx=15, pady=(pady_top, 2))
-
-    def _show_tab(self, key):
-        for name, frame in self.tabs.items():
-            if name == key:
-                frame.pack(fill="both", expand=True)
-            else:
-                frame.pack_forget()
-        for name, btn in self.tab_btns.items():
-            active = name == key
-            btn.config(bg=ACCENT if active else BG3, fg="#1A1207" if active else FG)
-        if key == "profils":
-            self._refresh_profiles()
+    def _preset_label(self, idx):
+        return "%d\n%s" % (idx + 1, self.config["presets"][idx]["name"][:7])
 
     def _highlight_preset(self):
         for i, btn in enumerate(self.preset_btns):
-            btn.config(bg=ACCENT if i == self.editing else BG3,
-                       fg="#000000" if i == self.editing else FG)
+            active = i == self.editing
+            btn.config(bg=ACCENT if active else BG3, fg="#1A1207" if active else FG)
 
     def _select_preset(self, idx):
         self.editing = idx
@@ -1040,40 +706,57 @@ class SettingsWindow:
     def _load_preset(self, idx):
         p = self.config["presets"][idx]
         self.name_var.set(p["name"])
-        self.cross_var.set(p.get("show_cross", True))
-        self.circle_var.set(p["show_circle"])
-        self.dot_var.set(p["show_dot"])
+        for key, var in self.shape_vars.items():
+            var.set(p["show_%s" % key])
         for which in self.colors:
             self._set_color(which, p[which])
-        for key, (scale, val_label) in self.sliders.items():
+        # Tk ignore Scale.set() sur un curseur desactive : forcer l'etat actif
+        # pendant l'ecriture, puis appliquer le grisage du nouveau preset. Sans
+        # ce detour la valeur de l'ancien preset survit et Save la reecrit.
+        for key, (scale, value, _name) in self.sliders.items():
+            scale.config(state="normal")
             scale.set(p[key])
-            val_label.config(text=str(p[key]))
+            value.config(text=str(p[key]))
+        self._sync_enabled()
         self.code_var.set(preset_to_code(p))
         self._update_preview()
 
     def _read_current(self):
-        return {
-            "name": self.name_var.get(),
-            "show_cross": self.cross_var.get(),
-            "show_circle": self.circle_var.get(),
-            "show_dot": self.dot_var.get(),
-            "color": self.colors["color"][1].cget("text"),
-            "outline": self.colors["outline"][1].cget("text"),
-            "size": int(self.sliders["size"][0].get()),
-            "thickness": int(self.sliders["thickness"][0].get()),
-            "gap": int(self.sliders["gap"][0].get()),
-            "dot_radius": int(self.sliders["dot_radius"][0].get()),
-        }
+        p = {"name": self.name_var.get()}
+        for which, (_swatch, value) in self.colors.items():
+            p[which] = value.cget("text")
+        for key, var in self.shape_vars.items():
+            p["show_%s" % key] = var.get()
+        for key, (scale, _value, _name) in self.sliders.items():
+            p[key] = int(scale.get())
+        return p
 
-    def _on_change(self, *_):
+    def _sync_enabled(self):
+        """Grise les reglages qu'aucune forme cochee n'utilise."""
+        for key, _text, owners in self.SLIDER_SPECS:
+            used = any(self.shape_vars[o].get() for o in owners)
+            scale, value, name = self.sliders[key]
+            scale.config(state="normal" if used else "disabled",
+                         troughcolor=BG3 if used else BG2)
+            name.config(fg=FG if used else FG2)
+            value.config(fg=ACCENT if used else FG2)
+
+    def _on_shape_change(self, *_):
+        # seules les cases a cocher peuvent changer ce qui est grise
+        self._sync_enabled()
         self._update_preview()
+
+    def _set_color(self, which, hex_color):
+        swatch, value = self.colors[which]
+        swatch.config(bg=hex_color)
+        value.config(text=hex_color)
 
     def _pick_color(self, which):
         current = self.colors[which][1].cget("text")
-        result = colorchooser.askcolor(color=current, title="Choisir une couleur")
+        result = colorchooser.askcolor(color=current, title="Pick a color")
         if result and result[1]:
             if not valid_color(result[1]):
-                self._set_status("%s rendrait le viseur invisible" % CHROMA_KEY)
+                self._set_status(CHROMA_WARNING)
                 return
             self._set_color(which, result[1])
             self._update_preview()
@@ -1081,29 +764,64 @@ class SettingsWindow:
     def _update_preview(self):
         p = self._read_current()
         self.overlay._draw_crosshair(self.preview, 60, 60, p)
+        self.code_var.set(preset_to_code(p))
 
-    def _apply(self):
+    # ── Actions ──────────────────────────────────────────────────────────────
+
+    def _copy_code(self):
+        code = preset_to_code(self._read_current())
+        self.win.clipboard_clear()
+        self.win.clipboard_append(code)
+        self._set_status("Copied")
+
+    def _paste_code(self):
+        try:
+            pasted = self.win.clipboard_get()
+        except Exception:
+            # Tk leve la meme erreur pour un presse-papiers vide et pour un
+            # contenu non textuel (image, fichiers) : ne pas affirmer l'un des deux.
+            self._set_status("No crosshair code on the clipboard")
+            return
+        try:
+            values = code_to_preset(pasted)
+        except ValueError as err:
+            self._set_status("Code rejected: %s" % err)
+            return
+        for key, var in self.shape_vars.items():
+            var.set(values["show_%s" % key])
+        for which in self.colors:
+            self._set_color(which, values[which])
+        for key, (scale, _value, _name) in self.sliders.items():
+            scale.config(state="normal")   # cf. _load_preset
+            scale.set(values[key])
+        self._sync_enabled()
+        self._update_preview()
+        self._set_status("Code applied to preset %d — Save to keep it" % (self.editing + 1))
+
+    def _save(self):
         p = self._read_current()
         self.config["presets"][self.editing] = p
         self.config["preset"] = self.editing
 
-        mon_str = self.monitor_var.get()
         try:
-            self.config["monitor"] = int(mon_str.split(":")[0]) - 1
+            self.config["monitor"] = int(self.monitor_var.get().split(":")[0]) - 1
         except Exception:
             self.config["monitor"] = 0
 
-        new_mod = self.modifier_var.get()
-        if new_mod != self.config.get("modifier") and self.hotkeys:
-            self.config["modifier"] = new_mod
-            self.hotkeys.change_modifier(MODIFIER_CHOICES[new_mod])
-
         self.overlay.apply()
-        self.preset_btns[self.editing].config(text=f"{self.editing+1}\n{p['name'][:6]}")
+        try:
+            save_config(self.config)
+        except (OSError, ValueError) as err:
+            # dossier en lecture seule, cle USB retiree, nom impossible a encoder :
+            # le .pyw n'a pas de console, donc sans ce message l'echec serait muet.
+            self._set_status("Could not write config.json: %s" % err)
+            return
+        self.preset_btns[self.editing].config(text=self._preset_label(self.editing))
+        self._set_status("Saved")
 
-    def _save(self):
-        self._apply()
-        save_config(self.config)
+    def _set_status(self, text):
+        if getattr(self, "status", None):
+            self.status.config(text=text[:80])
 
 
 # ─── System Tray ─────────────────────────────────────────────────────────────
@@ -1131,11 +849,11 @@ class TrayIcon:
             )
 
         menu = pystray.Menu(
-            pystray.MenuItem("Afficher/Masquer", lambda: self.root.after(0, self.overlay.toggle)),
-            pystray.MenuItem("Paramètres", lambda: self.root.after(0, self.settings.toggle)),
+            pystray.MenuItem("Show / Hide", lambda: self.root.after(0, self.overlay.toggle)),
+            pystray.MenuItem("Settings", lambda: self.root.after(0, self.settings.toggle)),
             pystray.MenuItem("Presets", pystray.Menu(*preset_items)),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("Quitter", lambda: self.root.after(0, self.shutdown_fn)),
+            pystray.MenuItem("Quit", lambda: self.root.after(0, self.shutdown_fn)),
         )
         self.icon = pystray.Icon("Viseur", image, "Viseur", menu)
         threading.Thread(target=self.icon.run, daemon=True).start()
@@ -1196,8 +914,6 @@ def main():
     mod_flags = MODIFIER_CHOICES.get(config.get("modifier", "Ctrl+Alt"),
                                       MODIFIER_CHOICES["Ctrl+Alt"])
     hotkeys = HotkeyManager(root, callbacks, mod_flags)
-    settings.hotkeys = hotkeys
-    settings.watcher = ProfileWatcher(root, config, switch_preset)
     tray = TrayIcon(root, config, overlay, settings, shutdown)
 
     root.mainloop()
