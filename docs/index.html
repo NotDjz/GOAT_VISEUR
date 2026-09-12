@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Viseur — overlay de viseur pour Windows</title>
-<meta name="description" content="Un viseur personnalisable par-dessus n'importe quel jeu. Dix presets, codes partageables, multi-écran. Portable, sans installation.">
+<title>Viseur — crosshair overlay for Windows</title>
+<meta name="description" content="A customizable crosshair on top of any game. Ten presets, shareable codes, multi-screen. Portable, no installer.">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap">
 <style>
@@ -45,7 +45,7 @@
     outline-offset: 3px;
   }
 
-  /* ── En-tête ─────────────────────────────────────────────── */
+  /* ── Header ─────────────────────────────────────────────── */
   header.top {
     border-bottom: 1px solid var(--line);
     padding: 1.1rem 0;
@@ -104,7 +104,7 @@
   .btn.ghost:hover { border-color: var(--dim); background: var(--panel); }
   .note { font-size: 0.8125rem; color: var(--dimmer); font-family: var(--mono); }
 
-  /* ── Scène + viseur ──────────────────────────────────────── */
+  /* ── Stage + crosshair ──────────────────────────────────────── */
   .stage {
     position: relative;
     background: #0C0E10;
@@ -230,35 +230,34 @@
     </svg>
     <span class="wordmark">VISEUR</span>
     <nav>
-      <a href="#reglage">Réglage</a>
-      <a href="#fonctions">Fonctions</a>
-      <a href="#raccourcis">Raccourcis</a>
+      <a href="#adjust">Adjust</a>
+      <a href="#features">Features</a>
+      <a href="#shortcuts">Shortcuts</a>
       <a href="https://github.com/NotDjz/GOAT_VISEUR">GitHub</a>
     </nav>
   </div>
 </header>
 
-<div class="hero wrap" id="reglage">
+<div class="hero wrap" id="adjust">
   <div class="hero-grid">
     <div>
-      <h1>Le viseur que ton jeu ne te donne pas.</h1>
-      <p class="lede">Un viseur net, posé au centre de l'écran de ton choix, par-dessus
-      n'importe quel jeu. Dix presets, codes partageables, aucune installation — un exe et
-      son fichier de config.</p>
+      <h1>The crosshair your game won't give you.</h1>
+      <p class="lede">A crisp crosshair, centered on the screen you pick, on top of any
+      game. Ten presets, shareable codes, no installer — one exe and its config file.</p>
       <div class="cta">
-        <a class="btn" href="https://github.com/NotDjz/GOAT_VISEUR/releases">Télécharger</a>
-        <a class="btn ghost" href="https://github.com/NotDjz/GOAT_VISEUR">Voir le code</a>
+        <a class="btn" href="https://github.com/NotDjz/GOAT_VISEUR/releases">Download</a>
+        <a class="btn ghost" href="https://github.com/NotDjz/GOAT_VISEUR">View the code</a>
       </div>
-      <p class="note" style="margin-top:1.1rem">Windows · ~10 Mo · sans installateur</p>
+      <p class="note" style="margin-top:1.1rem">Windows · ~30 MB · no installer</p>
 
       <p class="lede" style="margin-top:2rem;font-size:0.9375rem">
-      Règle-le ici même. Le code en dessous est celui que tu peux coller dans l'application
-      pour retrouver exactement ce réglage.</p>
+      Adjust it right here. The code underneath is the one you can paste into the app to
+      get exactly this setting back.</p>
     </div>
 
     <div>
       <div class="stage">
-        <svg viewBox="0 0 400 300" aria-label="Scène de démonstration">
+        <svg viewBox="0 0 400 300" aria-label="Demonstration scene">
           <defs>
             <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0" stop-color="#2A3138"/>
@@ -271,12 +270,12 @@
           </defs>
           <rect width="400" height="170" fill="url(#sky)"/>
           <rect y="170" width="400" height="130" fill="url(#floor)"/>
-          <!-- mur clair a gauche, pour voir le viseur sur du clair -->
+          <!-- light wall on the left, to see the crosshair against a bright surface -->
           <polygon points="0,40 120,120 120,220 0,290" fill="#8E9AA3" opacity="0.85"/>
           <polygon points="0,40 120,120 120,140 0,70" fill="#AEBAC3" opacity="0.6"/>
-          <!-- volume sombre a droite -->
+          <!-- dark volume on the right -->
           <polygon points="400,55 285,125 285,225 400,285" fill="#0F1316"/>
-          <!-- lignes de fuite -->
+          <!-- vanishing lines -->
           <g stroke="#39424A" stroke-width="1" opacity="0.55">
             <line x1="120" y1="300" x2="185" y2="170"/>
             <line x1="285" y1="300" x2="215" y2="170"/>
@@ -284,7 +283,7 @@
             <line x1="60" y1="205" x2="340" y2="205"/>
             <line x1="140" y1="183" x2="260" y2="183"/>
           </g>
-          <!-- cibles a trois distances -->
+          <!-- targets at three distances -->
           <g>
             <circle cx="150" cy="196" r="15" fill="#3E464E"/>
             <circle cx="150" cy="196" r="6" fill="#59636C"/>
@@ -294,110 +293,111 @@
           </g>
           <rect width="400" height="300" fill="#000" opacity="0.28"/>
         </svg>
-        <svg id="reticle" viewBox="0 0 400 300" aria-label="Aperçu du viseur"></svg>
+        <svg id="reticle" viewBox="0 0 400 300" aria-label="Crosshair preview"></svg>
       </div>
 
-      <!-- Les min/max ci-dessous reprennent SLIDER_RANGES dans crosshair.pyw :
-           si une borne y change, la mettre a jour ici aussi. -->
+      <!-- The min/max below mirror SLIDER_RANGES in crosshair.pyw: if a bound
+           changes there, update it here too. -->
       <div class="controls">
         <div class="ctl">
-          <label for="size">Taille</label>
+          <label for="size">Size</label>
           <input type="range" id="size" min="5" max="60" value="20">
           <output for="size" id="size-out">20</output>
         </div>
         <div class="ctl">
-          <label for="thickness">Épaisseur</label>
+          <label for="thickness">Thickness</label>
           <input type="range" id="thickness" min="1" max="8" value="2">
           <output for="thickness" id="thickness-out">2</output>
         </div>
         <div class="ctl">
-          <label for="gap">Espace</label>
+          <label for="gap">Gap</label>
           <input type="range" id="gap" min="0" max="20" value="4">
           <output for="gap" id="gap-out">4</output>
         </div>
         <div class="ctl">
-          <label for="dot_radius">Rayon point</label>
+          <label for="dot_radius">Dot size</label>
           <input type="range" id="dot_radius" min="1" max="10" value="2">
           <output for="dot_radius" id="dot_radius-out">2</output>
         </div>
         <div class="shapes">
-          <label><input type="checkbox" id="show_cross" checked> Croix</label>
-          <label><input type="checkbox" id="show_circle"> Cercle</label>
-          <label><input type="checkbox" id="show_dot" checked> Point</label>
+          <label><input type="checkbox" id="show_cross" checked> Cross</label>
+          <label><input type="checkbox" id="show_circle"> Circle</label>
+          <label><input type="checkbox" id="show_dot" checked> Dot</label>
         </div>
         <div class="swatch-row">
-          <span>COULEUR</span><input type="color" id="color" value="#00ff00">
-          <span style="margin-left:0.6rem">CONTOUR</span><input type="color" id="outline" value="#000000">
+          <label for="color">FILL</label><input type="color" id="color" value="#00ff00">
+          <label for="outline" style="margin-left:0.6rem">OUTLINE</label><input type="color" id="outline" value="#000000">
         </div>
       </div>
 
       <div class="codebar">
         <code id="code">VSR1-5-00FF00-000000-20-2-4-2</code>
-        <button type="button" id="copy">Copier</button>
+        <button type="button" id="copy">Copy</button>
       </div>
-      <p id="chroma-warn" class="note" hidden>#FF00FE est la couleur de transparence
-      de l'overlay : un viseur peint dans cette teinte serait invisible en jeu, et
-      l'application refuse ce code.</p>
+      <p id="chroma-warn" class="note" hidden>#FF00FE is the overlay's transparency
+      color: a crosshair painted in it would be invisible in game, and the app
+      refuses this code.</p>
     </div>
   </div>
 </div>
 
-<section id="fonctions" class="wrap">
-  <h2>Ce qu'il fait de plus</h2>
-  <p class="sub">Trois choses qu'un viseur dessiné à la main sur un bout de scotch ne fait pas.</p>
+<section id="features" class="wrap">
+  <h2>What it does beyond that</h2>
+  <p class="sub">Three things a crosshair drawn on a strip of tape doesn't do.</p>
   <div class="features">
     <div class="feature">
-      <h3>Codes de viseur</h3>
-      <p>Chaque réglage tient dans un code court à copier-coller — pour le partager sur Discord,
-      ou reprendre celui d'un autre.<br><span class="mono">VSR1-5-FFFFFF-690F96-13-1-3-1</span></p>
+      <h3>Crosshair codes</h3>
+      <p>Every setting fits in a short code you copy and paste — to share on Discord, or to
+      take someone else's.<br><span class="mono">VSR1-5-FFFFFF-690F96-13-1-3-1</span></p>
     </div>
     <div class="feature">
-      <h3>Dix presets au clavier</h3>
-      <p>Dix viseurs prêts, chacun sur sa touche. On passe de l'un à l'autre en pleine partie,
-      sans ouvrir la moindre fenêtre.</p>
+      <h3>Ten presets on the keyboard</h3>
+      <p>Ten crosshairs ready, each on its own key. You switch mid-match without opening a
+      single window.</p>
     </div>
     <div class="feature">
-      <h3>Une seule page de réglages</h3>
-      <p>Écran, preset, forme, couleurs, aperçu et code : tout est sous les yeux d'un coup.
-      Un réglage qui ne s'applique pas est grisé plutôt que trompeur.</p>
+      <h3>One page of settings</h3>
+      <p>Monitor, preset, shape, colors, preview and code: all of it under your eyes at once.
+      A setting that doesn't apply is grayed out rather than misleading.</p>
     </div>
   </div>
 </section>
 
-<section id="raccourcis" class="wrap">
-  <h2>Raccourcis</h2>
-  <p class="sub"><code class="note">Mod</code> vaut <kbd>Ctrl+Alt</kbd> par défaut. En cas de
-  conflit avec ton jeu, remplace <code class="note">"modifier"</code> dans
-  <code class="note">config.json</code> par Ctrl+Shift, Alt+Shift ou Ctrl+Alt+Shift.</p>
+<section id="shortcuts" class="wrap">
+  <h2>Shortcuts</h2>
+  <p class="sub"><code class="note">Mod</code> is <kbd>Ctrl+Alt</kbd> by default. If it clashes
+  with your game, pick another one in the Shortcuts tab — Ctrl+Shift, Alt+Shift or
+  Ctrl+Alt+Shift. It applies straight away, and tells you if Windows refused a key because
+  another application already holds it.</p>
   <div class="table-scroll">
     <table>
-      <thead><tr><th>Raccourci</th><th>Action</th></tr></thead>
+      <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>
       <tbody>
-        <tr><td><kbd>Mod</kbd> + <kbd>S</kbd></td><td>Ouvrir ou fermer les paramètres</td></tr>
-        <tr><td><kbd>Mod</kbd> + <kbd>H</kbd></td><td>Masquer ou afficher le viseur</td></tr>
-        <tr><td><kbd>Mod</kbd> + <kbd>1</kbd>…<kbd>0</kbd></td><td>Changer de preset</td></tr>
-        <tr><td><kbd>Mod</kbd> + <kbd>Q</kbd></td><td>Quitter</td></tr>
+        <tr><td><kbd>Mod</kbd> + <kbd>S</kbd></td><td>Open or close the settings</td></tr>
+        <tr><td><kbd>Mod</kbd> + <kbd>H</kbd></td><td>Hide or show the crosshair</td></tr>
+        <tr><td><kbd>Mod</kbd> + <kbd>1</kbd>…<kbd>0</kbd></td><td>Switch preset</td></tr>
+        <tr><td><kbd>Mod</kbd> + <kbd>Q</kbd></td><td>Quit</td></tr>
       </tbody>
     </table>
   </div>
 </section>
 
 <section class="wrap">
-  <h2>En bref</h2>
+  <h2>In short</h2>
   <dl class="specs">
-    <div class="spec"><dt>PLATEFORME</dt><dd>Windows 10 et 11</dd></div>
-    <div class="spec"><dt>INSTALLATION</dt><dd>Aucune — un exe portable</dd></div>
-    <div class="spec"><dt>PRESETS</dt><dd>10, commutables au clavier</dd></div>
-    <div class="spec"><dt>ÉCRANS</dt><dd>Multi-écran, viseur centré sur celui de ton choix</dd></div>
-    <div class="spec"><dt>CLICS</dt><dd>Traversants — la fenêtre n'intercepte rien</dd></div>
-    <div class="spec"><dt>CONFIG</dt><dd>Un <code class="note">config.json</code> à côté de l'exe</dd></div>
+    <div class="spec"><dt>PLATFORM</dt><dd>Windows 10 and 11</dd></div>
+    <div class="spec"><dt>INSTALL</dt><dd>None — a portable exe</dd></div>
+    <div class="spec"><dt>PRESETS</dt><dd>10, switchable from the keyboard</dd></div>
+    <div class="spec"><dt>SCREENS</dt><dd>Multi-screen, centered on the one you pick</dd></div>
+    <div class="spec"><dt>CLICKS</dt><dd>Pass straight through — the window catches nothing</dd></div>
+    <div class="spec"><dt>CONFIG</dt><dd>One <code class="note">config.json</code> beside the exe</dd></div>
   </dl>
 </section>
 
 <footer class="wrap">
-  <span>Viseur — overlay de viseur pour Windows</span>
-  <a href="https://github.com/NotDjz/GOAT_VISEUR">Code source</a>
-  <a href="https://github.com/NotDjz/GOAT_VISEUR/blob/main/LICENSE">Licence MIT</a>
+  <span>Viseur — crosshair overlay for Windows</span>
+  <a href="https://github.com/NotDjz/GOAT_VISEUR">Source code</a>
+  <a href="https://github.com/NotDjz/GOAT_VISEUR/blob/main/LICENSE">MIT license</a>
 </footer>
 
 <script>
@@ -435,12 +435,12 @@
     return el;
   }
 
-  // Même construction que _draw_crosshair() dans crosshair.pyw :
-  // un passage de contour épaissi, puis un passage de couleur.
+  // Same construction as _draw_crosshair() in crosshair.pyw: one pass with the
+  // outline color, thickened, then one pass with the fill color.
   function draw(p) {
     var cx = 200, cy = 150;
     var s = p.size, g = p.gap, t = p.thickness, ot = t + 2, dr = p.dot_radius;
-    // un passage de contour epaissi, puis un passage de couleur
+    // outline pass first, then fill
     var passes = [[p.outline, ot], [p.color, t]];
     while (reticle.firstChild) { reticle.removeChild(reticle.firstChild); }
 
@@ -464,8 +464,8 @@
     }
   }
 
-  // Meme format que preset_to_code() dans crosshair.pyw : si CODE_FIELDS ou le
-  // mapping des bits y changent, cette fonction doit suivre.
+  // Same format as preset_to_code() in crosshair.pyw: if CODE_FIELDS or the bit
+  // mapping change there, this function must follow.
   function code(p) {
     var flags = (p.show_cross ? 1 : 0) | (p.show_circle ? 2 : 0) | (p.show_dot ? 4 : 0);
     return ["VSR1", flags,
@@ -474,8 +474,8 @@
             p.size, p.thickness, p.gap, p.dot_radius].join("-");
   }
 
-  // L'application refuse le chroma key : la page ne doit pas fabriquer un code
-  // qu'elle rejetterait. Meme constante que CHROMA_KEY dans crosshair.pyw.
+  // The app refuses the chroma key, so the page must not produce a code it would
+  // reject. Same constant as CHROMA_KEY in crosshair.pyw.
   var CHROMA_KEY = "#FF00FE";
 
   function update() {
@@ -497,8 +497,8 @@
   document.getElementById("copy").addEventListener("click", function () {
     var btn = this, text = codeEl.textContent;
     function done(ok) {
-      btn.textContent = ok ? "Copié" : "Échec";
-      setTimeout(function () { btn.textContent = "Copier"; }, 1400);
+      btn.textContent = ok ? "Copied" : "Failed";
+      setTimeout(function () { btn.textContent = "Copy"; }, 1400);
     }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(function () { done(true); },

@@ -1,7 +1,7 @@
 """
 Crosshair Overlay — customizable, multi-monitor, 10 presets.
 
-Hotkeys (the modifier defaults to Ctrl+Alt, change it in config.json):
+Hotkeys (the modifier defaults to Ctrl+Alt, change it in the Shortcuts tab):
   Mod+S       → Open / close the settings window
   Mod+H       → Hide / show the crosshair
   Mod+1 to 0  → Switch preset (1-10, 0 = preset 10)
@@ -19,7 +19,7 @@ import ctypes.wintypes as wt
 import pystray
 from PIL import Image, ImageDraw, ImageTk
 
-# ─── Chemins (relatifs au script / exe) ─────────────────────────────────────
+# ─── Paths (relative to the script / exe) ────────────────────────────────────
 if getattr(sys, "frozen", False):
     SCRIPT_DIR = os.path.dirname(sys.executable)
 else:
@@ -53,9 +53,9 @@ MODIFIER_CHOICES = {
     "Ctrl+Alt+Shift": MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
 }
 
-# ─── Thème GUI ───────────────────────────────────────────────────────────────
-# Etabli d'armurier : l'interface est un outil neutre, l'orange ne marque que ce
-# qui est actif ou modifiable. La couleur du viseur reste celle du preset.
+# ─── GUI theme ───────────────────────────────────────────────────────────────
+# Gunsmith's bench: the interface is a neutral tool, and the orange marks only
+# what is active or adjustable. The crosshair's color comes from the preset.
 BG = "#23262A"
 BG2 = "#2E3238"
 BG3 = "#383D44"
@@ -67,7 +67,7 @@ FONT_B = ("Bahnschrift", 10, "bold")
 FONT_S = ("Bahnschrift", 9)
 FONT_MONO = ("Consolas", 10)
 
-# ─── Moniteurs ───────────────────────────────────────────────────────────────
+# ─── Monitors ────────────────────────────────────────────────────────────────
 
 class MONITORINFOEXW(ctypes.Structure):
     _fields_ = [
@@ -107,32 +107,31 @@ def get_monitors():
 # ─── Config ──────────────────────────────────────────────────────────────────
 
 DEFAULT_PRESETS = [
-    {"name": "Croix",   "show_cross": True,  "show_circle": False, "show_dot": True,
+    {"name": "Cross",   "show_cross": True,  "show_circle": False, "show_dot": True,
      "color": "#00FF00", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 2},
-    {"name": "Point",   "show_cross": False, "show_circle": False, "show_dot": True,
+    {"name": "Dot",   "show_cross": False, "show_circle": False, "show_dot": True,
      "color": "#00FF00", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 5},
-    {"name": "Cercle",  "show_cross": True,  "show_circle": True,  "show_dot": True,
+    {"name": "Circle",  "show_cross": True,  "show_circle": True,  "show_dot": True,
      "color": "#00FF00", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 2},
-    {"name": "Rouge",   "show_cross": True,  "show_circle": False, "show_dot": True,
+    {"name": "Red",   "show_cross": True,  "show_circle": False, "show_dot": True,
      "color": "#FF0000", "outline": "#000000", "size": 18, "thickness": 2, "gap": 5, "dot_radius": 2},
     {"name": "Cyan",    "show_cross": True,  "show_circle": True,  "show_dot": True,
      "color": "#00FFFF", "outline": "#000000", "size": 22, "thickness": 2, "gap": 4, "dot_radius": 2},
-    {"name": "Jaune",   "show_cross": True,  "show_circle": False, "show_dot": True,
+    {"name": "Yellow",   "show_cross": True,  "show_circle": False, "show_dot": True,
      "color": "#FFFF00", "outline": "#222222", "size": 16, "thickness": 3, "gap": 3, "dot_radius": 1},
-    {"name": "Blanc",   "show_cross": True,  "show_circle": False, "show_dot": False,
+    {"name": "White",   "show_cross": True,  "show_circle": False, "show_dot": False,
      "color": "#FFFFFF", "outline": "#000000", "size": 24, "thickness": 1, "gap": 6, "dot_radius": 2},
-    {"name": "Rose",    "show_cross": False, "show_circle": True,  "show_dot": True,
+    {"name": "Pink",    "show_cross": False, "show_circle": True,  "show_dot": True,
      "color": "#FF69B4", "outline": "#000000", "size": 15, "thickness": 2, "gap": 4, "dot_radius": 3},
     {"name": "Orange",  "show_cross": True,  "show_circle": True,  "show_dot": True,
      "color": "#FF8C00", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 2},
-    {"name": "Bleu",    "show_cross": True,  "show_circle": False, "show_dot": True,
+    {"name": "Blue",    "show_cross": True,  "show_circle": False, "show_dot": True,
      "color": "#4488FF", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 2},
 ]
 
 
-# Couleur de transparence de l'overlay : un viseur peint dans cette teinte y est
-# invisible, alors qu'il s'affiche normalement dans l'apercu. Aucune entree ne
-# doit pouvoir l'imposer.
+# The overlay's transparency color. A crosshair painted in it is invisible there
+# while showing up normally in the preview, so no input may be allowed to set it.
 CHROMA_KEY = "#FF00FE"
 CHROMA_WARNING = ("%s is the transparency color: the crosshair would be invisible" % CHROMA_KEY)
 
@@ -148,21 +147,21 @@ SLIDER_RANGES = {
 
 
 def valid_color(value):
-    """Vrai si `value` est un #RRGGBB utilisable, chroma key exclu."""
+    """True if `value` is a usable #RRGGBB, chroma key excluded."""
     return (isinstance(value, str) and len(value) == 7 and value[0] == "#"
             and all(c in _HEXDIGITS for c in value[1:])
             and value.upper() != CHROMA_KEY)
 
 
 def _migrate_preset(p, defaults):
-    """Migre `shape`, rebouche les cles absentes, borne les valeurs numeriques.
+    """Migrate `shape`, backfill missing keys, clamp the numeric values.
 
-    Contrairement a `code_to_preset()` qui rejette une valeur hors bornes, on
-    borne ici : `config.json` est un fichier local, et un chiffre aberrant tape
-    a la main ne doit pas empecher l'application de demarrer.
+    Unlike `code_to_preset()`, which rejects an out-of-range value, we clamp
+    here: `config.json` is a local file, and a wild number typed by hand must
+    not stop the app from starting.
     """
     if "shape" in p:
-        # `shape` designait UNE forme : « dot » ne doit pas aussi allumer la croix.
+        # `shape` named ONE shape: "dot" must not also light up the cross.
         shape = p.pop("shape")
         p.setdefault("show_circle", shape == "circle")
         p.setdefault("show_dot", shape == "dot")
@@ -175,7 +174,7 @@ def _migrate_preset(p, defaults):
             p[key] = defaults[key]
         else:
             p[key] = max(low, min(value, high))
-    # une couleur illisible par Tk ferait mourir un .pyw sans fenetre ni message
+    # a color Tk cannot parse would kill a .pyw with no window and no message
     for key in ("color", "outline"):
         if not valid_color(p.get(key)):
             p[key] = defaults[key]
@@ -187,18 +186,18 @@ def _migrate_preset(p, defaults):
 
 
 def _clamp_index(value, high=None):
-    """Indice entier borne a [0, high], avec repli sur 0 si la valeur n'en est pas un."""
+    """Integer index clamped to [0, high], falling back to 0 if it is not one."""
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return 0
     return value if high is None else max(0, min(value, high))
 
 
 def load_config(monitor_count=None):
-    """Rend toujours un config exploitable : cles garanties, indices bornes.
+    """Always returns a usable config: keys guaranteed, indices clamped.
 
-    `presets` et `preset` sont normalises ici une fois pour toutes, donc les
-    consommateurs les indexent sans garde. `monitor` n'est borne par le haut que
-    si `monitor_count` est fourni : seul l'appelant connait le nombre d'ecrans.
+    `presets` and `preset` are normalized here once and for all, so consumers
+    index them without guards. `monitor` is only capped when `monitor_count` is
+    given: the caller alone knows how many screens exist.
     """
     cfg = {}
     if os.path.exists(CONFIG_FILE):
@@ -227,18 +226,18 @@ def load_config(monitor_count=None):
     )
     if not isinstance(cfg.get("modifier"), str) or cfg["modifier"] not in MODIFIER_CHOICES:
         cfg["modifier"] = "Ctrl+Alt"
-    # vestige des profils par jeu : la retirer plutot que la recopier a chaque
-    # sauvegarde, sinon elle survit indefiniment dans les fichiers existants.
+    # leftover from per-game profiles: drop it rather than carry it forward on
+    # every save, otherwise it survives indefinitely in existing files.
     cfg.pop("profiles", None)
     return cfg
 
 
 def save_config(cfg):
-    """Ecrit par un fichier temporaire, puis remplace.
+    """Writes through a temporary file, then replaces.
 
-    Ecrire directement dans CONFIG_FILE le tronque avant la serialisation : un
-    nom de preset que l'encodeur UTF-8 refuse laisserait alors un fichier
-    mutile a la place des dix presets.
+    Writing straight into CONFIG_FILE truncates it before serializing: a preset
+    name the UTF-8 encoder refuses would then leave a mangled file in place of
+    all ten presets.
     """
     tmp = CONFIG_FILE + ".tmp"
     try:
@@ -253,16 +252,16 @@ def save_config(cfg):
         raise
 
 
-# ─── Codes de viseur partageables ────────────────────────────────────────────
+# ─── Shareable crosshair codes ───────────────────────────────────────────────
 #
-# Format positionnel, court et lisible :
-#     VSR1-<flags>-<couleur>-<contour>-<taille>-<epaisseur>-<ecart>-<point>
+# Positional format, short and readable:
+#     VSR1-<flags>-<fill>-<outline>-<size>-<thickness>-<gap>-<dot>
 #     VSR1-5-FFFFFF-690F96-13-1-3-1
-# flags : bit 0 croix, bit 1 cercle, bit 2 point.
+# flags: bit 0 cross, bit 1 circle, bit 2 dot.
 #
-# Un code arrive d'un tiers (Discord, forum) : c'est la seule entree non fiable
-# de l'application. Tout est valide avant qu'un preset ne soit touche, et un
-# code hors bornes est rejete plutot que corrige en silence.
+# A code arrives from someone else (Discord, a forum), which makes it the only
+# untrusted input in the app. Everything validates before a preset is touched,
+# and an out-of-range code is rejected rather than quietly corrected.
 
 CODE_PREFIX = "VSR1"
 CODE_MAX_LEN = 64
@@ -291,7 +290,7 @@ def _parse_hex6(text):
 
 
 def _parse_int(text, key):
-    # ni signe, ni espace, ni chiffre Unicode exotique : int() les accepterait.
+    # no sign, no space, no exotic Unicode digit: int() would accept all three.
     if not text or not all(c in _DIGITS for c in text):
         raise ValueError("invalid number: %s" % text[:12])
     value = int(text)
@@ -302,7 +301,7 @@ def _parse_int(text, key):
 
 
 def code_to_preset(code):
-    """Rend les champs d'un preset, ou leve ValueError. Ne porte pas le nom."""
+    """Returns a preset's fields, or raises ValueError. Carries no name."""
     if not isinstance(code, str):
         raise ValueError("no code")
     code = code.strip()
@@ -361,10 +360,10 @@ for _i in range(1, 10):
     HOTKEY_DEFS[10 + _i] = 0x30 + _i  # 1-9
 HOTKEY_DEFS[20] = 0x30  # 0 → preset 10
 
-# Lignes de l'onglet Shortcuts : les ids couverts, le libelle, et les touches
-# quand plusieurs ids sont groupes. Pour une ligne a id unique la touche est
-# derivee de HOTKEY_DEFS, qui fait foi aupres de Windows : la retaper ici
-# laisserait l'affichage mentir si le code virtuel changeait.
+# Rows of the Shortcuts tab: the ids covered, the label, and the keys when several
+# ids are grouped. For a single-id row the key is derived from HOTKEY_DEFS, which
+# is what Windows actually registers — retyping it here would let the display lie
+# if the virtual key ever changed.
 HOTKEY_ROWS = (
     ((HOTKEY_SETTINGS,), "Settings", None),
     ((HOTKEY_TOGGLE,), "Hide / show", None),
@@ -386,12 +385,12 @@ class HotkeyManager:
         self._ready.wait(timeout=2)
 
     def _register_all(self):
-        """Reinscrit tous les raccourcis et retient ceux que Windows refuse.
+        """Re-registers every hotkey and records the ones Windows refuses.
 
-        `RegisterHotKey` echoue quand une autre application detient deja la
-        combinaison. Sans ce releve, l'utilisateur croirait son raccourci actif.
-        `refused` est remplace d'un bloc, jamais modifie en place : le thread tk
-        peut donc le lire sans verrou.
+        `RegisterHotKey` fails when another application already holds the
+        combination. Without this record the user would believe the shortcut is
+        live. `refused` is replaced wholesale, never mutated in place, so the tk
+        thread can read it without a lock.
         """
         for hk_id in HOTKEY_DEFS:
             user32.UnregisterHotKey(None, hk_id)
@@ -413,11 +412,11 @@ class HotkeyManager:
                     self.root.after(0, cb)
 
     def change_modifier(self, modifier_flags):
-        """Demande la re-inscription au thread proprietaire des raccourcis.
+        """Asks the thread that owns the hotkeys to re-register them.
 
-        `RegisterHotKey` lie les raccourcis au thread appelant : les reinscrire
-        d'ici les rattacherait au mauvais thread et `WM_HOTKEY` n'arriverait
-        plus jamais.
+        `RegisterHotKey` binds hotkeys to the calling thread: re-registering
+        from here would attach them to the wrong one and `WM_HOTKEY` would never
+        arrive again.
         """
         self._mod = modifier_flags
         if self._thread_id:
@@ -472,9 +471,9 @@ class Overlay:
         self._draw_crosshair(self.canvas, ws // 2, ws // 2, p)
 
     def _draw_crosshair(self, canvas, cx, cy, p):
-        # Quel reglage sert a quelle forme est aussi decrit dans
-        # SettingsWindow.SLIDER_SPECS, qui s'en sert pour griser : toucher l'un
-        # sans l'autre laisse un reglage actif qui ne fait rien, ou l'inverse.
+        # Which setting serves which shape is also described in
+        # SettingsWindow.SLIDER_SPECS, which uses it for graying: touching one
+        # without the other leaves a live setting that does nothing, or the reverse.
         canvas.delete("all")
         color = p["color"]
         outline = p["outline"]
@@ -525,12 +524,12 @@ class Overlay:
 # ─── Settings GUI ────────────────────────────────────────────────────────────
 
 class SettingsWindow:
-    """Une seule page : ecran, presets, nom, reglages, apercu, code, Save."""
+    """Two tabs: the crosshair on one page, and the hotkey modifier."""
 
-    # Cle, libelle, et formes qui utilisent ce reglage. La troisieme colonne doit
-    # rester d'accord avec Overlay._draw_crosshair() : un reglage qu'aucune forme
-    # cochee n'utilise est grise, sans quoi on peut le bouger sans rien voir.
-    # L'ordre est celui de la grille 2x2, pas celui du code VSR1.
+    # Key, label, and the shapes that use this setting. The third column must stay
+    # in agreement with Overlay._draw_crosshair(): a setting no ticked shape uses
+    # is grayed out, otherwise you can move it and see nothing happen. The order
+    # is the one of the 2x2 grid, not the one of the VSR1 code.
     SLIDER_SPECS = (
         ("size", "Size", ("cross", "circle")),
         ("gap", "Gap", ("cross",)),
@@ -553,19 +552,19 @@ class SettingsWindow:
             self.win.destroy()
             self.win = None
             return
-        # le preset a pu changer depuis la derniere ouverture (raccourci, tray)
+        # the preset may have changed since it was last opened (hotkey, tray)
         self.editing = _clamp_index(self.config["preset"], len(self.config["presets"]) - 1)
         self._build()
 
-    # ── Construction ─────────────────────────────────────────────────────────
+    # ── Building ─────────────────────────────────────────────────────────────
 
     def _build(self):
         self.win = tk.Toplevel(self.root)
         self.win.title("Viseur — Settings")
-        # Pas de geometry fixe : la hauteur requise par le contenu depend de la
-        # mise a l'echelle DPI (682 px a 100 %, 787 a 125 %, 864 a 150 %), et une
-        # taille en dur y ferait sortir le bouton Save de la fenetre. On laisse Tk
-        # dimensionner, et on autorise l'ajustement vertical comme recours.
+        # No fixed geometry: the height the content needs scales with DPI (682 px
+        # at 100%, 787 at 125%, 864 at 150%), and a hard-coded size would push the
+        # Save button off the window. Let Tk size it, and allow vertical resizing
+        # as a fallback.
         self.win.resizable(False, True)
         self.win.configure(bg=BG)
         self.win.attributes("-topmost", True)
@@ -601,8 +600,8 @@ class SettingsWindow:
 
         self._load_preset(self.editing)
         self._show_tab(self.active_tab)
-        # apres le mappage : place avant, Windows ecrase la position au moment
-        # ou il affiche la fenetre, et elle atterrit sur l'ecran principal.
+        # these run after mapping: call them earlier and Windows overwrites the
+        # position when it shows the window, landing it on the primary screen.
         self.win.after(0, self._lock_height)
         self.win.after(0, self._place_on_monitor)
         self.win.lift()
@@ -620,19 +619,19 @@ class SettingsWindow:
             btn.config(bg=ACCENT if active else BG3, fg="#1A1207" if active else FG)
 
     def _lock_height(self):
-        """Fige la hauteur au plus grand des deux onglets.
+        """Pins the height to the taller of the two tabs.
 
-        Sans cela la fenetre, qui n'a pas de geometrie fixe, se redimensionne a
-        chaque bascule. La mesure reste dynamique — donc juste a toutes les
-        echelles DPI — contrairement a une taille en dur, qui poussait Save hors
-        de l'ecran. Un cadre non affiche rapporte deja sa taille requise, donc
-        aucun besoin de basculer pour mesurer : on eviterait sinon un clignotement
-        et on ecraserait l'onglet que l'utilisateur vient peut-etre de choisir.
-        La largeur est verrouillee de meme, la fenetre ne pouvant pas s'elargir.
+        Without it the window, which has no fixed geometry, resizes on every
+        switch. The measurement stays dynamic — hence correct at every DPI
+        scale — unlike a hard-coded size, which pushed Save off-screen. An unmapped
+        frame already reports its requested size, so there is no need to switch
+        tabs to measure: doing so would flicker and would override the tab the
+        user may have just picked. Width is pinned the same way, the window
+        being unable to grow wider.
         """
         self.win.update_idletasks()
         current = self.tabs[self.active_tab]
-        # ce qui n'appartient a aucun onglet : barre d'onglets et barre d'action
+        # what belongs to no tab: the tab bar and the action bar
         chrome_h = self.win.winfo_reqheight() - current.winfo_reqheight()
         chrome_w = self.win.winfo_reqwidth() - current.winfo_reqwidth()
         tallest = max(f.winfo_reqheight() for f in self.tabs.values())
@@ -659,10 +658,10 @@ class SettingsWindow:
         self._refresh_shortcuts()
 
     def _refresh_shortcuts(self):
-        # Garde defensive. Tk annule bien les `after` d'un widget detruit (mesure),
-        # donc le rafraichissement differe ne devrait jamais arriver apres une
-        # fermeture ; on ne fait simplement pas reposer l'absence de TclError
-        # muette sur ce detail d'implementation.
+        # Defensive guard. Tk does cancel the `after` calls of a destroyed widget
+        # (measured), so the deferred refresh should never land after a close; we
+        # simply don't want the absence of a silent TclError to depend on that
+        # implementation detail.
         if not (self.win and self.win.winfo_exists()):
             return
         for child in self.shortcut_rows.winfo_children():
@@ -686,27 +685,27 @@ class SettingsWindow:
     def _change_modifier(self, choice):
         if choice not in MODIFIER_CHOICES:
             return
-        # en memoire immediatement : sans cela, rouvrir la fenetre rechargerait
-        # l'ancienne valeur depuis config et un Save ulterieur annulerait le
-        # changement pourtant deja actif.
+        # in memory straight away: without this, reopening the window would reload
+        # the old value from config and a later Save would undo a change that is
+        # already active.
         self.config["modifier"] = choice
         if self.hotkeys:
             self.hotkeys.change_modifier(MODIFIER_CHOICES[choice])
-            # la re-inscription a lieu sur le thread des raccourcis : lui laisser
-            # le temps de relever les refus avant de redessiner la liste.
+            # re-registration happens on the hotkey thread: give it time to record
+            # the refusals before redrawing the list.
             self.win.after(250, self._refresh_shortcuts)
         else:
             self._refresh_shortcuts()
         self._set_status("Shortcuts now use %s — Save to keep it" % choice)
 
     def _place_on_monitor(self):
-        """Centre la fenetre sur l'ecran choisi, ancree en haut si elle deborde.
+        """Centers the window on the chosen screen, anchored top if it overflows.
 
-        A forte mise a l'echelle le contenu peut depasser la hauteur de l'ecran
-        (864 px a 150 %). Windows centrerait alors la fenetre et couperait le
-        haut comme le bas ; en l'ancrant on garde au moins le debut visible, et
-        la fenetre reste redimensionnable verticalement. Il n'y a pas de
-        defilement : c'est une limite connue, pas un oubli.
+        At a high scale the content can exceed the screen height (864 px at
+        150%). Windows would then centre the window and clip both top and
+        bottom; anchoring it keeps at least the start visible, and the window
+        stays vertically resizable. There is no scrolling: that is a known
+        limit, not an oversight.
         """
         self.win.update_idletasks()
         mon = self.monitors[_clamp_index(self.config["monitor"], len(self.monitors) - 1)]
@@ -716,7 +715,7 @@ class SettingsWindow:
         self.win.geometry("+%d+%d" % (x, y))
 
     def _section(self, parent, text, pady_top=8, bg=BG, fill="x"):
-        """Titre de section, puis le cadre deja empaquete qui recevra son contenu."""
+        """A section title, then the already-packed frame that takes its content."""
         tk.Label(parent, text=text, bg=BG, fg=ACCENT, font=FONT_B,
                  anchor="w").pack(fill="x", padx=15, pady=(pady_top, 2))
         frame = tk.Frame(parent, bg=bg)
@@ -764,7 +763,7 @@ class SettingsWindow:
     def _build_settings(self, tab):
         sf = self._section(tab, "Settings", bg=BG2)
 
-        # Formes : trois interrupteurs sur une ligne
+        # Shapes: three switches on one row
         row = tk.Frame(sf, bg=BG2)
         row.pack(fill="x", padx=10, pady=(9, 5))
         tk.Label(row, text="Shape", bg=BG2, fg=FG, font=FONT,
@@ -778,7 +777,7 @@ class SettingsWindow:
                            font=FONT, command=self._on_shape_change,
                            cursor="hand2").pack(side="left", padx=(0, 12))
 
-        # Reglages : grille 2x2, moitie moins haute que quatre lignes empilees
+        # Settings: a 2x2 grid, half the height of four stacked rows
         grid = tk.Frame(sf, bg=BG2)
         grid.pack(fill="x", padx=10, pady=(0, 3))
         self.sliders = {}
@@ -805,7 +804,7 @@ class SettingsWindow:
         for c in range(2):
             grid.columnconfigure(c, weight=1)
 
-        # Couleurs : les deux sur une ligne
+        # Colors: both on one row
         row = tk.Frame(sf, bg=BG2)
         row.pack(fill="x", padx=10, pady=(4, 10))
         self.colors = {}
@@ -853,7 +852,7 @@ class SettingsWindow:
         self.status = tk.Label(f, text="", bg=BG, fg=FG2, font=FONT_S, anchor="e")
         self.status.pack(side="right", fill="x", expand=True, padx=(10, 0))
 
-    # ── Etat ─────────────────────────────────────────────────────────────────
+    # ── State ────────────────────────────────────────────────────────────────
 
     def _preset_label(self, idx):
         return "%d\n%s" % (idx + 1, self.config["presets"][idx]["name"][:7])
@@ -869,12 +868,12 @@ class SettingsWindow:
         self._load_preset(idx)
 
     def _apply_values(self, values):
-        """Seul point d'ecriture des reglages dans les widgets.
+        """The single place settings are written into the widgets.
 
-        Tk ignore `Scale.set()` sur un curseur desactive : l'etat est donc force
-        a normal pendant l'ecriture, et le grisage applique ensuite. Ecrire
-        ailleurs sans respecter cet ordre perd la valeur en silence, d'ou ce
-        passage oblige. `values` n'a pas besoin de porter `name`.
+        Tk ignores `Scale.set()` on a disabled slider, so the state is forced to
+        normal while writing and the graying applied afterwards. Writing
+        anywhere else without that order loses the value silently, which is why
+        everything goes through here. `values` need not carry `name`.
         """
         for key, var in self.shape_vars.items():
             var.set(values["show_%s" % key])
@@ -904,7 +903,7 @@ class SettingsWindow:
         return p
 
     def _sync_enabled(self):
-        """Grise les reglages qu'aucune forme cochee n'utilise."""
+        """Grays out the settings no ticked shape uses."""
         for key, _text, owners in self.SLIDER_SPECS:
             used = any(self.shape_vars[o].get() for o in owners)
             scale, value, name = self.sliders[key]
@@ -914,7 +913,7 @@ class SettingsWindow:
             value.config(fg=ACCENT if used else FG2)
 
     def _on_shape_change(self, *_):
-        # seules les cases a cocher peuvent changer ce qui est grise
+        # only the check buttons can change what is grayed out
         self._sync_enabled()
         self._update_preview()
 
@@ -950,8 +949,8 @@ class SettingsWindow:
         try:
             pasted = self.win.clipboard_get()
         except Exception:
-            # Tk leve la meme erreur pour un presse-papiers vide et pour un
-            # contenu non textuel (image, fichiers) : ne pas affirmer l'un des deux.
+            # Tk raises the same error for an empty clipboard and for non-text
+            # content (an image, files): don't claim it is one or the other.
             self._set_status("No crosshair code on the clipboard")
             return
         try:
@@ -979,8 +978,8 @@ class SettingsWindow:
         try:
             save_config(self.config)
         except (OSError, ValueError) as err:
-            # dossier en lecture seule, cle USB retiree, nom impossible a encoder :
-            # le .pyw n'a pas de console, donc sans ce message l'echec serait muet.
+            # read-only folder, USB stick pulled, a name that cannot be encoded: a
+            # .pyw has no console, so without this message the failure is silent.
             self._set_status("Could not write config.json: %s" % err)
             return
         self.preset_btns[self.editing].config(text=self._preset_label(self.editing))

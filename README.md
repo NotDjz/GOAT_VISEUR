@@ -1,6 +1,6 @@
 # Viseur — Crosshair Overlay
 
-A crisp crosshair drawn on top of any game, centred on the monitor you choose.
+A crisp crosshair drawn on top of any game, centered on the monitor you choose.
 Ten presets, no installer — one exe and its config file next to it.
 
 ## Usage
@@ -26,7 +26,7 @@ refused a key because another application already holds it.
 
 Two tabs. **Crosshair** holds everything about the crosshair itself on a single
 page: pick the screen, pick a preset, name it, shape it, and save. Settings that
-don't apply are greyed out — `Gap` means nothing without a cross, and `Dot size`
+don't apply are grayed out — `Gap` means nothing without a cross, and `Dot size`
 means nothing without a dot. **Shortcuts** holds the modifier.
 
 ## Crosshair codes
