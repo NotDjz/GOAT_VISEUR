@@ -107,25 +107,25 @@ def get_monitors():
 # ─── Config ──────────────────────────────────────────────────────────────────
 
 DEFAULT_PRESETS = [
-    {"name": "Cross",   "show_cross": True,  "show_circle": False, "show_dot": True,
+    {"name": "Preset 1",   "show_cross": True,  "show_circle": False, "show_dot": True,
      "color": "#00FF00", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 2},
-    {"name": "Dot",   "show_cross": False, "show_circle": False, "show_dot": True,
+    {"name": "Preset 2",   "show_cross": False, "show_circle": False, "show_dot": True,
      "color": "#00FF00", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 5},
-    {"name": "Circle",  "show_cross": True,  "show_circle": True,  "show_dot": True,
+    {"name": "Preset 3",  "show_cross": True,  "show_circle": True,  "show_dot": True,
      "color": "#00FF00", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 2},
-    {"name": "Red",   "show_cross": True,  "show_circle": False, "show_dot": True,
+    {"name": "Preset 4",   "show_cross": True,  "show_circle": False, "show_dot": True,
      "color": "#FF0000", "outline": "#000000", "size": 18, "thickness": 2, "gap": 5, "dot_radius": 2},
-    {"name": "Cyan",    "show_cross": True,  "show_circle": True,  "show_dot": True,
+    {"name": "Preset 5",    "show_cross": True,  "show_circle": True,  "show_dot": True,
      "color": "#00FFFF", "outline": "#000000", "size": 22, "thickness": 2, "gap": 4, "dot_radius": 2},
-    {"name": "Yellow",   "show_cross": True,  "show_circle": False, "show_dot": True,
+    {"name": "Preset 6",   "show_cross": True,  "show_circle": False, "show_dot": True,
      "color": "#FFFF00", "outline": "#222222", "size": 16, "thickness": 3, "gap": 3, "dot_radius": 1},
-    {"name": "White",   "show_cross": True,  "show_circle": False, "show_dot": False,
+    {"name": "Preset 7",   "show_cross": True,  "show_circle": False, "show_dot": False,
      "color": "#FFFFFF", "outline": "#000000", "size": 24, "thickness": 1, "gap": 6, "dot_radius": 2},
-    {"name": "Pink",    "show_cross": False, "show_circle": True,  "show_dot": True,
+    {"name": "Preset 8",    "show_cross": False, "show_circle": True,  "show_dot": True,
      "color": "#FF69B4", "outline": "#000000", "size": 15, "thickness": 2, "gap": 4, "dot_radius": 3},
-    {"name": "Orange",  "show_cross": True,  "show_circle": True,  "show_dot": True,
+    {"name": "Preset 9",  "show_cross": True,  "show_circle": True,  "show_dot": True,
      "color": "#FF8C00", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 2},
-    {"name": "Blue",    "show_cross": True,  "show_circle": False, "show_dot": True,
+    {"name": "Preset 10",    "show_cross": True,  "show_circle": False, "show_dot": True,
      "color": "#4488FF", "outline": "#000000", "size": 20, "thickness": 2, "gap": 4, "dot_radius": 2},
 ]
 
@@ -744,7 +744,10 @@ class SettingsWindow:
         for i in range(10):
             btn = tk.Button(
                 pf, text=self._preset_label(i),
-                height=2, command=lambda idx=i: self._select_preset(idx),
+                # largeur fixe : un nom personnalise est plus large qu'un simple
+                # chiffre, et la fenetre ne peut pas s'elargir apres coup, donc
+                # sans cela le bouton renomme prend la place de ses voisins.
+                width=9, height=2, command=lambda idx=i: self._select_preset(idx),
                 bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
                 relief="flat", font=FONT_S, bd=0, cursor="hand2",
             )
@@ -855,7 +858,15 @@ class SettingsWindow:
     # ── State ────────────────────────────────────────────────────────────────
 
     def _preset_label(self, idx):
-        return "%d\n%s" % (idx + 1, self.config["presets"][idx]["name"][:7])
+        """Button caption: the hotkey digit, plus the name once it says something.
+
+        A default name is just "Preset <n>", which repeats the digit above it, so
+        it is left out. Rename a preset and the name appears.
+        """
+        name = self.config["presets"][idx]["name"]
+        if name == DEFAULT_PRESETS[idx]["name"]:
+            return str(idx + 1)
+        return "%d\n%s" % (idx + 1, name[:10])
 
     def _highlight_preset(self):
         for i, btn in enumerate(self.preset_btns):
