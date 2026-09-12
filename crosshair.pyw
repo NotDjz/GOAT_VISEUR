@@ -39,6 +39,7 @@ except Exception:
 GWL_EXSTYLE = -20
 WS_EX_TRANSPARENT = 0x00000020
 WM_HOTKEY = 0x0312
+WM_USER_REREGISTER = 0x0400 + 1
 
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
@@ -360,12 +361,24 @@ for _i in range(1, 10):
     HOTKEY_DEFS[10 + _i] = 0x30 + _i  # 1-9
 HOTKEY_DEFS[20] = 0x30  # 0 → preset 10
 
+# Lignes de l'onglet Shortcuts : les ids couverts, le libelle, et les touches
+# quand plusieurs ids sont groupes. Pour une ligne a id unique la touche est
+# derivee de HOTKEY_DEFS, qui fait foi aupres de Windows : la retaper ici
+# laisserait l'affichage mentir si le code virtuel changeait.
+HOTKEY_ROWS = (
+    ((HOTKEY_SETTINGS,), "Settings", None),
+    ((HOTKEY_TOGGLE,), "Hide / show", None),
+    (tuple(range(11, 21)), "Preset 1-10", "1 … 0"),
+    ((HOTKEY_QUIT,), "Quit", None),
+)
+
 
 class HotkeyManager:
     def __init__(self, root, callbacks, modifier_flags):
         self.root = root
         self.callbacks = callbacks
         self._mod = modifier_flags
+        self.refused = []
         self._thread_id = None
         self._ready = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -373,10 +386,18 @@ class HotkeyManager:
         self._ready.wait(timeout=2)
 
     def _register_all(self):
+        """Reinscrit tous les raccourcis et retient ceux que Windows refuse.
+
+        `RegisterHotKey` echoue quand une autre application detient deja la
+        combinaison. Sans ce releve, l'utilisateur croirait son raccourci actif.
+        `refused` est remplace d'un bloc, jamais modifie en place : le thread tk
+        peut donc le lire sans verrou.
+        """
         for hk_id in HOTKEY_DEFS:
             user32.UnregisterHotKey(None, hk_id)
-        for hk_id, vk in HOTKEY_DEFS.items():
-            user32.RegisterHotKey(None, hk_id, self._mod, vk)
+        refused = [hk_id for hk_id, vk in HOTKEY_DEFS.items()
+                   if not user32.RegisterHotKey(None, hk_id, self._mod, vk)]
+        self.refused = refused
 
     def _run(self):
         self._thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
@@ -384,10 +405,23 @@ class HotkeyManager:
         self._ready.set()
         msg = wt.MSG()
         while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-            if msg.message == WM_HOTKEY:
+            if msg.message == WM_USER_REREGISTER:
+                self._register_all()
+            elif msg.message == WM_HOTKEY:
                 cb = self.callbacks.get(int(msg.wParam))
                 if cb:
                     self.root.after(0, cb)
+
+    def change_modifier(self, modifier_flags):
+        """Demande la re-inscription au thread proprietaire des raccourcis.
+
+        `RegisterHotKey` lie les raccourcis au thread appelant : les reinscrire
+        d'ici les rattacherait au mauvais thread et `WM_HOTKEY` n'arriverait
+        plus jamais.
+        """
+        self._mod = modifier_flags
+        if self._thread_id:
+            user32.PostThreadMessageW(self._thread_id, WM_USER_REREGISTER, 0, 0)
 
     def stop(self):
         if self._thread_id:
@@ -509,7 +543,9 @@ class SettingsWindow:
         self.config = config
         self.monitors = monitors
         self.overlay = overlay
+        self.hotkeys = None
         self.win = None
+        self.active_tab = "crosshair"
         self.editing = config["preset"]
 
     def toggle(self):
@@ -538,20 +574,130 @@ class SettingsWindow:
         self.win.protocol("WM_DELETE_WINDOW",
                           lambda: (self.win.destroy(), setattr(self, "win", None)))
 
-        self._build_screen()
-        self._build_presets()
-        self._build_name()
-        self._build_settings()
-        self._build_preview()
-        self._build_code()
+        bar = tk.Frame(self.win, bg=BG)
+        bar.pack(fill="x", padx=15, pady=(12, 6))
+        body = tk.Frame(self.win, bg=BG)
+        body.pack(fill="both", expand=True)
+
+        self.tab_btns, self.tabs = {}, {}
+        for key, label in (("crosshair", "Crosshair"), ("shortcuts", "Shortcuts")):
+            btn = tk.Button(bar, text=label, command=lambda k=key: self._show_tab(k),
+                            bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
+                            relief="flat", bd=0, font=FONT, padx=18, pady=4,
+                            cursor="hand2")
+            btn.pack(side="left", padx=(0, 3))
+            self.tab_btns[key] = btn
+            self.tabs[key] = tk.Frame(body, bg=BG)
+
+        crosshair = self.tabs["crosshair"]
+        self._build_screen(crosshair)
+        self._build_presets(crosshair)
+        self._build_name(crosshair)
+        self._build_settings(crosshair)
+        self._build_preview(crosshair)
+        self._build_code(crosshair)
+        self._build_shortcuts(self.tabs["shortcuts"])
         self._build_actions()
 
         self._load_preset(self.editing)
+        self._show_tab(self.active_tab)
         # apres le mappage : place avant, Windows ecrase la position au moment
         # ou il affiche la fenetre, et elle atterrit sur l'ecran principal.
+        self.win.after(0, self._lock_height)
         self.win.after(0, self._place_on_monitor)
         self.win.lift()
         self.win.focus_force()
+
+    def _show_tab(self, key):
+        self.active_tab = key
+        for name, frame in self.tabs.items():
+            if name == key:
+                frame.pack(fill="both", expand=True)
+            else:
+                frame.pack_forget()
+        for name, btn in self.tab_btns.items():
+            active = name == key
+            btn.config(bg=ACCENT if active else BG3, fg="#1A1207" if active else FG)
+
+    def _lock_height(self):
+        """Fige la hauteur au plus grand des deux onglets.
+
+        Sans cela la fenetre, qui n'a pas de geometrie fixe, se redimensionne a
+        chaque bascule. La mesure reste dynamique — donc juste a toutes les
+        echelles DPI — contrairement a une taille en dur, qui poussait Save hors
+        de l'ecran. Un cadre non affiche rapporte deja sa taille requise, donc
+        aucun besoin de basculer pour mesurer : on eviterait sinon un clignotement
+        et on ecraserait l'onglet que l'utilisateur vient peut-etre de choisir.
+        La largeur est verrouillee de meme, la fenetre ne pouvant pas s'elargir.
+        """
+        self.win.update_idletasks()
+        current = self.tabs[self.active_tab]
+        # ce qui n'appartient a aucun onglet : barre d'onglets et barre d'action
+        chrome_h = self.win.winfo_reqheight() - current.winfo_reqheight()
+        chrome_w = self.win.winfo_reqwidth() - current.winfo_reqwidth()
+        tallest = max(f.winfo_reqheight() for f in self.tabs.values())
+        widest = max(f.winfo_reqwidth() for f in self.tabs.values())
+        self.win.geometry("%dx%d" % (max(self.win.winfo_reqwidth(), chrome_w + widest),
+                                     chrome_h + tallest))
+
+    def _build_shortcuts(self, tab):
+        f = self._section(tab, "Modifier", 12)
+        self.modifier_var = tk.StringVar(value=self.config.get("modifier", "Ctrl+Alt"))
+        om = tk.OptionMenu(f, self.modifier_var, *MODIFIER_CHOICES.keys(),
+                           command=self._change_modifier)
+        om.config(bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
+                  highlightthickness=0, font=FONT_S, relief="flat")
+        om["menu"].config(bg=BG3, fg=FG, activebackground=ACCENT, font=FONT_S)
+        om.pack(fill="x")
+
+        tk.Label(tab, text="Applies to every shortcut below. Change it when one of them "
+                           "clashes with a game.",
+                 bg=BG, fg=FG2, font=FONT_S, justify="left", wraplength=440,
+                 anchor="w").pack(fill="x", padx=15, pady=(5, 0))
+
+        self.shortcut_rows = self._section(tab, "Keys")
+        self._refresh_shortcuts()
+
+    def _refresh_shortcuts(self):
+        # Garde defensive. Tk annule bien les `after` d'un widget detruit (mesure),
+        # donc le rafraichissement differe ne devrait jamais arriver apres une
+        # fermeture ; on ne fait simplement pas reposer l'absence de TclError
+        # muette sur ce detail d'implementation.
+        if not (self.win and self.win.winfo_exists()):
+            return
+        for child in self.shortcut_rows.winfo_children():
+            child.destroy()
+        modifier = self.modifier_var.get()
+        refused = set(self.hotkeys.refused) if self.hotkeys else set()
+        for ids, label, keys in HOTKEY_ROWS:
+            keys = keys or chr(HOTKEY_DEFS[ids[0]])
+            taken = any(i in refused for i in ids)
+            row = tk.Frame(self.shortcut_rows, bg=BG2)
+            row.pack(fill="x", pady=1)
+            tk.Label(row, text=label, bg=BG2, fg=FG, font=FONT,
+                     anchor="w", padx=8, pady=4).pack(side="left")
+            tk.Label(row, text="%s + %s" % (modifier, keys), bg=BG2,
+                     fg=FG2 if taken else ACCENT, font=FONT_MONO,
+                     anchor="e", padx=8).pack(side="right")
+            if taken:
+                tk.Label(row, text="taken by another app", bg=BG2, fg=FG2,
+                         font=FONT_S, anchor="e").pack(side="right")
+
+    def _change_modifier(self, choice):
+        if choice not in MODIFIER_CHOICES:
+            return
+        # en memoire immediatement : sans cela, rouvrir la fenetre rechargerait
+        # l'ancienne valeur depuis config et un Save ulterieur annulerait le
+        # changement pourtant deja actif.
+        self.config["modifier"] = choice
+        if self.hotkeys:
+            self.hotkeys.change_modifier(MODIFIER_CHOICES[choice])
+            # la re-inscription a lieu sur le thread des raccourcis : lui laisser
+            # le temps de relever les refus avant de redessiner la liste.
+            self.win.after(250, self._refresh_shortcuts)
+        else:
+            self._refresh_shortcuts()
+        self._set_status("Shortcuts now use %s — Save to keep it" % choice)
 
     def _place_on_monitor(self):
         """Centre la fenetre sur l'ecran choisi, ancree en haut si elle deborde.
@@ -569,16 +715,16 @@ class SettingsWindow:
         y = mon["y"] + max(10, (mon["h"] - need_h) // 2)
         self.win.geometry("+%d+%d" % (x, y))
 
-    def _section(self, text, pady_top=8, bg=BG, fill="x"):
+    def _section(self, parent, text, pady_top=8, bg=BG, fill="x"):
         """Titre de section, puis le cadre deja empaquete qui recevra son contenu."""
-        tk.Label(self.win, text=text, bg=BG, fg=ACCENT, font=FONT_B,
+        tk.Label(parent, text=text, bg=BG, fg=ACCENT, font=FONT_B,
                  anchor="w").pack(fill="x", padx=15, pady=(pady_top, 2))
-        frame = tk.Frame(self.win, bg=bg)
+        frame = tk.Frame(parent, bg=bg)
         frame.pack(fill=fill, padx=15)
         return frame
 
-    def _build_screen(self):
-        f = self._section("Screen", 12)
+    def _build_screen(self, tab):
+        f = self._section(tab, "Screen", 12)
 
         labels = []
         for i, m in enumerate(self.monitors):
@@ -592,8 +738,8 @@ class SettingsWindow:
         om["menu"].config(bg=BG3, fg=FG, activebackground=ACCENT, font=FONT_S)
         om.pack(fill="x")
 
-    def _build_presets(self):
-        pf = self._section("Presets")
+    def _build_presets(self, tab):
+        pf = self._section(tab, "Presets")
 
         self.preset_btns = []
         for i in range(10):
@@ -609,14 +755,14 @@ class SettingsWindow:
             pf.columnconfigure(c, weight=1)
         self._highlight_preset()
 
-    def _build_name(self):
-        f = self._section("Name")
+    def _build_name(self, tab):
+        f = self._section(tab, "Name")
         self.name_var = tk.StringVar()
         tk.Entry(f, textvariable=self.name_var, bg=BG3, fg=FG, insertbackground=FG,
                  font=FONT, relief="flat", bd=3).pack(fill="x")
 
-    def _build_settings(self):
-        sf = self._section("Settings", bg=BG2)
+    def _build_settings(self, tab):
+        sf = self._section(tab, "Settings", bg=BG2)
 
         # Formes : trois interrupteurs sur une ligne
         row = tk.Frame(sf, bg=BG2)
@@ -675,14 +821,14 @@ class SettingsWindow:
             value.pack(side="left", padx=(0, 18))
             self.colors[which] = (swatch, value)
 
-    def _build_preview(self):
-        f = self._section("Preview", fill="none")
+    def _build_preview(self, tab):
+        f = self._section(tab, "Preview", fill="none")
         self.preview = tk.Canvas(f, width=120, height=120, bg="#111111",
                                  highlightthickness=1, highlightbackground=BG3)
         self.preview.pack()
 
-    def _build_code(self):
-        f = self._section("Crosshair code")
+    def _build_code(self, tab):
+        f = self._section(tab, "Crosshair code")
         self.code_var = tk.StringVar()
         tk.Entry(f, textvariable=self.code_var, state="readonly",
                  readonlybackground=BG3, fg=FG, font=FONT_MONO,
@@ -826,6 +972,8 @@ class SettingsWindow:
             self.config["monitor"] = int(self.monitor_var.get().split(":")[0]) - 1
         except Exception:
             self.config["monitor"] = 0
+        if self.modifier_var.get() in MODIFIER_CHOICES:
+            self.config["modifier"] = self.modifier_var.get()
 
         self.overlay.apply()
         try:
@@ -933,6 +1081,7 @@ def main():
     mod_flags = MODIFIER_CHOICES.get(config.get("modifier", "Ctrl+Alt"),
                                       MODIFIER_CHOICES["Ctrl+Alt"])
     hotkeys = HotkeyManager(root, callbacks, mod_flags)
+    settings.hotkeys = hotkeys
     tray = TrayIcon(root, config, overlay, settings, shutdown)
 
     root.mainloop()

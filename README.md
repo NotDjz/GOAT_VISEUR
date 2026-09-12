@@ -17,15 +17,17 @@ Right-click the system tray icon for the menu.
 | `Mod+1`–`0` | Switch preset (1–10) |
 | `Mod+Q` | Quit |
 
-`Mod` is `Ctrl+Alt` by default. If one of these clashes with your game, change
-`"modifier"` in `config.json` to `Ctrl+Shift`, `Alt+Shift` or `Ctrl+Alt+Shift`;
-Viseur reads it at startup.
+`Mod` is `Ctrl+Alt` by default. If one of these clashes with your game, pick
+another one in the **Shortcuts** tab — `Ctrl+Shift`, `Alt+Shift` or
+`Ctrl+Alt+Shift`. It applies straight away, and the tab tells you if Windows
+refused a key because another application already holds it.
 
 ## Settings
 
-Everything lives on one page: pick the screen, pick a preset, name it, shape it,
-and save. Settings that don't apply are greyed out — `Gap` means nothing without
-a cross, and `Dot size` means nothing without a dot.
+Two tabs. **Crosshair** holds everything about the crosshair itself on a single
+page: pick the screen, pick a preset, name it, shape it, and save. Settings that
+don't apply are greyed out — `Gap` means nothing without a cross, and `Dot size`
+means nothing without a dot. **Shortcuts** holds the modifier.
 
 ## Crosshair codes
 
