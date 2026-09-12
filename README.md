@@ -1,35 +1,56 @@
 # Viseur — Crosshair Overlay
 
-## Utilisation
-Lancer `Viseur.exe` — le viseur apparaît au centre de l'écran.
-Clic droit sur l'icône dans le system tray pour les options.
+A crisp crosshair drawn on top of any game, centred on the monitor you choose.
+Ten presets, no installer — one exe and its config file next to it.
 
-## Raccourcis
-| Raccourci | Action |
-|-----------|--------|
-| `Mod+S` | Ouvrir/fermer les paramètres |
-| `Mod+H` | Masquer/afficher le viseur |
-| `Mod+1-0` | Changer de preset (1-10) |
-| `Mod+Q` | Quitter |
+## Usage
 
-`Mod` est le modificateur, `Ctrl+Alt` par défaut. Il se change dans les paramètres
-(`Ctrl+Alt`, `Ctrl+Shift`, `Alt+Shift` ou `Ctrl+Alt+Shift`) si l'un de ces raccourcis
-entre en conflit avec un jeu, et le choix est conservé dans `config.json`.
+Run `Viseur.exe` — the crosshair appears at the centre of the screen.
+Right-click the system tray icon for the menu.
 
-## Fonctions
+## Hotkeys
 
-**Profils par jeu** — associe un jeu à un preset : le viseur bascule tout seul quand le jeu
-passe au premier plan, et le réglage manuel revient quand on en sort. Onglet *Profils*, bouton
-*Associer ce jeu au preset affiché*.
+| Hotkey | Action |
+|--------|--------|
+| `Mod+S` | Open or close the settings window |
+| `Mod+H` | Hide or show the crosshair |
+| `Mod+1`–`0` | Switch preset (1–10) |
+| `Mod+Q` | Quit |
 
-**Codes de viseur** — chaque preset s'exporte en un code court à partager :
-`VSR1-5-FFFFFF-690F96-13-1-3-1`. Copier, coller, importer. Onglet *Viseur*.
+`Mod` is `Ctrl+Alt` by default. If one of these clashes with your game, change
+`"modifier"` in `config.json` to `Ctrl+Shift`, `Alt+Shift` or `Ctrl+Alt+Shift`;
+Viseur reads it at startup.
 
-**Démarrage avec Windows** — case à cocher dans l'onglet *Général*. Ajoute un raccourci dans le
-dossier Démarrage, sans rien écrire dans le registre.
+## Settings
 
-## Recompiler (optionnel)
-Nécessite Python 3 + `py -m pip install -r requirements.txt`
+Everything lives on one page: pick the screen, pick a preset, name it, shape it,
+and save. Settings that don't apply are greyed out — `Gap` means nothing without
+a cross, and `Dot size` means nothing without a dot.
+
+## Crosshair codes
+
+Every preset boils down to a short code you can share:
+
+```
+VSR1-5-FFFFFF-690F96-13-1-3-1
+```
+
+*Copy* puts the current preset's code on the clipboard. *Paste* reads a code from
+the clipboard and applies it to the selected preset — then *Save* to keep it.
+Invalid codes are refused with a reason, and nothing is changed.
+
+## Upgrading from an earlier build
+
+Two earlier features are gone: per-game profiles and the run-at-startup checkbox.
+If you had ticked that checkbox, the shortcut it created is still there and Viseur
+will keep starting with Windows — delete
+`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Viseur.lnk` if you
+don't want that. A leftover `profiles` key in `config.json` is dropped on next save.
+
+## Rebuilding (optional)
+
+Needs Python 3 and `py -m pip install -r requirements.txt`
+
 1. `py generate_icon.py`
 2. `build.bat`
-3. L'exe est dans `dist\Viseur.exe`
+3. The executable lands in `dist\Viseur.exe`

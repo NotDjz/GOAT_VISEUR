@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Viseur — overlay de viseur pour Windows</title>
-<meta name="description" content="Un viseur personnalisable par-dessus n'importe quel jeu. Dix presets, profils par jeu, multi-écran. Portable, sans installation.">
+<meta name="description" content="Un viseur personnalisable par-dessus n'importe quel jeu. Dix presets, codes partageables, multi-écran. Portable, sans installation.">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap">
 <style>
@@ -174,6 +174,8 @@
     padding: 0.35rem 0.7rem; cursor: pointer;
   }
   .codebar button:hover { background: var(--line); }
+  .codebar button[disabled] { opacity: 0.45; cursor: not-allowed; }
+  #chroma-warn { margin: 0.55rem 0 0; color: var(--tool); max-width: 52ch; }
 
   /* ── Sections ────────────────────────────────────────────── */
   section { padding: clamp(2.25rem, 5vw, 3.5rem) 0; border-top: 1px solid var(--line); }
@@ -241,8 +243,8 @@
     <div>
       <h1>Le viseur que ton jeu ne te donne pas.</h1>
       <p class="lede">Un viseur net, posé au centre de l'écran de ton choix, par-dessus
-      n'importe quel jeu. Dix presets, profils par jeu, aucune installation — un exe et son
-      fichier de config.</p>
+      n'importe quel jeu. Dix presets, codes partageables, aucune installation — un exe et
+      son fichier de config.</p>
       <div class="cta">
         <a class="btn" href="https://github.com/NotDjz/GOAT_VISEUR/releases">Télécharger</a>
         <a class="btn ghost" href="https://github.com/NotDjz/GOAT_VISEUR">Voir le code</a>
@@ -333,6 +335,9 @@
         <code id="code">VSR1-5-00FF00-000000-20-2-4-2</code>
         <button type="button" id="copy">Copier</button>
       </div>
+      <p id="chroma-warn" class="note" hidden>#FF00FE est la couleur de transparence
+      de l'overlay : un viseur peint dans cette teinte serait invisible en jeu, et
+      l'application refuse ce code.</p>
     </div>
   </div>
 </div>
@@ -342,27 +347,28 @@
   <p class="sub">Trois choses qu'un viseur dessiné à la main sur un bout de scotch ne fait pas.</p>
   <div class="features">
     <div class="feature">
-      <h3>Profils par jeu</h3>
-      <p>Associe un jeu à un preset : le viseur bascule tout seul quand le jeu passe au premier
-      plan, et ton réglage manuel revient quand tu en sors.</p>
-    </div>
-    <div class="feature">
       <h3>Codes de viseur</h3>
       <p>Chaque réglage tient dans un code court à copier-coller — pour le partager sur Discord,
       ou reprendre celui d'un autre.<br><span class="mono">VSR1-5-FFFFFF-690F96-13-1-3-1</span></p>
     </div>
     <div class="feature">
-      <h3>Démarrage avec Windows</h3>
-      <p>Une case à cocher pose un raccourci dans le dossier Démarrage. Rien dans le registre :
-      supprime le dossier, il ne reste aucune trace.</p>
+      <h3>Dix presets au clavier</h3>
+      <p>Dix viseurs prêts, chacun sur sa touche. On passe de l'un à l'autre en pleine partie,
+      sans ouvrir la moindre fenêtre.</p>
+    </div>
+    <div class="feature">
+      <h3>Une seule page de réglages</h3>
+      <p>Écran, preset, forme, couleurs, aperçu et code : tout est sous les yeux d'un coup.
+      Un réglage qui ne s'applique pas est grisé plutôt que trompeur.</p>
     </div>
   </div>
 </section>
 
 <section id="raccourcis" class="wrap">
   <h2>Raccourcis</h2>
-  <p class="sub"><code class="note">Mod</code> vaut <kbd>Ctrl+Alt</kbd> par défaut, et se change
-  en Ctrl+Shift, Alt+Shift ou Ctrl+Alt+Shift si l'un d'eux entre en conflit avec ton jeu.</p>
+  <p class="sub"><code class="note">Mod</code> vaut <kbd>Ctrl+Alt</kbd> par défaut. En cas de
+  conflit avec ton jeu, remplace <code class="note">"modifier"</code> dans
+  <code class="note">config.json</code> par Ctrl+Shift, Alt+Shift ou Ctrl+Alt+Shift.</p>
   <div class="table-scroll">
     <table>
       <thead><tr><th>Raccourci</th><th>Action</th></tr></thead>
@@ -468,11 +474,20 @@
             p.size, p.thickness, p.gap, p.dot_radius].join("-");
   }
 
+  // L'application refuse le chroma key : la page ne doit pas fabriquer un code
+  // qu'elle rejetterait. Meme constante que CHROMA_KEY dans crosshair.pyw.
+  var CHROMA_KEY = "#FF00FE";
+
   function update() {
     var p = read();
     NUMS.forEach(function (k) { document.getElementById(k + "-out").textContent = p[k]; });
     draw(p);
     codeEl.textContent = code(p);
+
+    var clash = p.color.toUpperCase() === CHROMA_KEY
+             || p.outline.toUpperCase() === CHROMA_KEY;
+    document.getElementById("chroma-warn").hidden = !clash;
+    document.getElementById("copy").disabled = clash;
   }
 
   NUMS.concat(FLAGS, ["color", "outline"]).forEach(function (id) {

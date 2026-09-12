@@ -6,3 +6,4 @@ config.json
 .claude/
 CLAUDE.md
 CONTEXT.md
+config.json.tmp
