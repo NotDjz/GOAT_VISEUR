@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viseur — overlay de viseur pour Windows</title>
+<meta name="description" content="Un viseur personnalisable par-dessus n'importe quel jeu. Dix presets, profils par jeu, multi-écran. Portable, sans installation.">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg:      #14171A;
+    --panel:   #1B1F23;
+    --raised:  #23272C;
+    --ink:     #E4E8EB;
+    --dim:     #8A9299;
+    --dimmer:  #626A71;
+    --line:    #2B3036;
+    --signal:  #00CC66;
+    --signal-d:#00A352;
+    --tool:    #E07A2F;
+
+    --sans: "Archivo", "Segoe UI", system-ui, sans-serif;
+    --mono: "DM Mono", ui-monospace, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  .wrap { width: min(1080px, 100% - 2.5rem); margin-inline: auto; }
+
+  a { color: var(--signal); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible, input:focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 3px;
+  }
+
+  /* ── En-tête ─────────────────────────────────────────────── */
+  header.top {
+    border-bottom: 1px solid var(--line);
+    padding: 1.1rem 0;
+  }
+  header.top .wrap { display: flex; align-items: center; gap: 0.7rem; }
+  .logo { width: 22px; height: 22px; flex: none; }
+  .wordmark {
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    font-size: 0.95rem;
+  }
+  header.top nav { margin-left: auto; display: flex; gap: 1.4rem; font-size: 0.875rem; }
+  header.top nav a { color: var(--dim); text-decoration: none; }
+  header.top nav a:hover { color: var(--ink); }
+
+  /* ── Hero ────────────────────────────────────────────────── */
+  .hero { padding: clamp(2.5rem, 6vw, 4.5rem) 0 clamp(2rem, 4vw, 3rem); }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: clamp(1.75rem, 4vw, 3.25rem);
+    align-items: start;
+  }
+  @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; } }
+
+  h1 {
+    font-size: clamp(2.35rem, 6vw, 3.6rem);
+    font-weight: 800;
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+  .lede { font-size: 1.0625rem; color: var(--dim); margin: 0 0 1.6rem; max-width: 46ch; }
+
+  .cta { display: flex; flex-wrap: wrap; gap: 0.7rem; align-items: center; }
+  .btn {
+    display: inline-block;
+    background: var(--signal);
+    color: #06180E;
+    font-weight: 700;
+    font-size: 0.9375rem;
+    padding: 0.6rem 1.2rem;
+    border: 0;
+    text-decoration: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .btn:hover { background: var(--signal-d); }
+  .btn.ghost {
+    background: none;
+    color: var(--ink);
+    border: 1px solid var(--line);
+    font-weight: 500;
+  }
+  .btn.ghost:hover { border-color: var(--dim); background: var(--panel); }
+  .note { font-size: 0.8125rem; color: var(--dimmer); font-family: var(--mono); }
+
+  /* ── Scène + viseur ──────────────────────────────────────── */
+  .stage {
+    position: relative;
+    background: #0C0E10;
+    border: 1px solid var(--line);
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+  }
+  .stage svg { display: block; width: 100%; height: 100%; }
+  #reticle { position: absolute; inset: 0; pointer-events: none; }
+
+  .controls {
+    border: 1px solid var(--line);
+    border-top: 0;
+    background: var(--panel);
+    padding: 0.9rem 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .ctl { display: grid; grid-template-columns: 5.5rem 1fr 2.2rem; align-items: center; gap: 0.6rem; }
+  .ctl label { font-size: 0.75rem; color: var(--dim); letter-spacing: 0.06em; }
+  .ctl output {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    color: var(--tool);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 18px; background: none; cursor: pointer; margin: 0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track { height: 3px; background: var(--raised); }
+  input[type="range"]::-moz-range-track { height: 3px; background: var(--raised); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 9px; height: 16px; background: var(--ink); margin-top: -6px; border: 0; border-radius: 0;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 9px; height: 16px; background: var(--ink); border: 0; border-radius: 0;
+  }
+
+  .shapes { display: flex; gap: 1rem; flex-wrap: wrap; padding-top: 0.2rem; }
+  .shapes label {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    font-size: 0.8125rem; color: var(--ink); cursor: pointer;
+  }
+  .swatch-row { display: flex; align-items: center; gap: 0.6rem; padding-top: 0.15rem; }
+  .swatch-row span { font-size: 0.75rem; color: var(--dim); letter-spacing: 0.06em; }
+  input[type="color"] {
+    width: 34px; height: 22px; padding: 0; border: 1px solid var(--line);
+    background: none; cursor: pointer;
+  }
+
+  .codebar {
+    display: flex; gap: 0.5rem; align-items: center;
+    border: 1px solid var(--line); border-top: 0;
+    background: var(--bg); padding: 0.6rem 0.7rem 0.6rem 0.9rem;
+  }
+  .codebar code {
+    font-family: var(--mono); font-size: 0.8125rem; color: var(--signal);
+    flex: 1; overflow-x: auto; white-space: nowrap;
+  }
+  .codebar button {
+    font-family: inherit; font-size: 0.75rem; font-weight: 600;
+    background: var(--raised); color: var(--ink); border: 0;
+    padding: 0.35rem 0.7rem; cursor: pointer;
+  }
+  .codebar button:hover { background: var(--line); }
+
+  /* ── Sections ────────────────────────────────────────────── */
+  section { padding: clamp(2.25rem, 5vw, 3.5rem) 0; border-top: 1px solid var(--line); }
+  h2 {
+    font-size: clamp(1.5rem, 3vw, 1.9rem);
+    font-weight: 700; letter-spacing: -0.02em;
+    margin: 0 0 0.5rem;
+  }
+  .sub { color: var(--dim); margin: 0 0 1.75rem; max-width: 60ch; }
+
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; }
+  .feature { border-top: 2px solid var(--tool); padding-top: 0.9rem; }
+  .feature h3 { font-size: 1rem; font-weight: 600; margin: 0 0 0.4rem; }
+  .feature p { margin: 0; color: var(--dim); font-size: 0.9375rem; }
+  .feature .mono { font-family: var(--mono); font-size: 0.8125rem; color: var(--signal); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+  th, td { text-align: left; padding: 0.6rem 0.5rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 500; font-size: 0.8125rem; letter-spacing: 0.06em; }
+  td kbd {
+    font-family: var(--mono); font-size: 0.8125rem;
+    background: var(--panel); border: 1px solid var(--line);
+    padding: 0.15rem 0.45rem; color: var(--ink);
+  }
+  .table-scroll { overflow-x: auto; }
+
+  .specs { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1.25rem 2rem; }
+  .spec dt { font-size: 0.75rem; color: var(--dim); letter-spacing: 0.08em; margin-bottom: 0.2rem; }
+  .spec dd { margin: 0; font-size: 0.9375rem; }
+
+  footer {
+    border-top: 1px solid var(--line);
+    padding: 2rem 0 3rem;
+    color: var(--dimmer);
+    font-size: 0.875rem;
+    display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; align-items: center;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+      <rect x="4" y="30" width="56" height="4" fill="#00CC66"/>
+      <rect x="30" y="4" width="4" height="56" fill="#00CC66"/>
+      <circle cx="32" cy="32" r="6" fill="#00CC66"/>
+    </svg>
+    <span class="wordmark">VISEUR</span>
+    <nav>
+      <a href="#reglage">Réglage</a>
+      <a href="#fonctions">Fonctions</a>
+      <a href="#raccourcis">Raccourcis</a>
+      <a href="https://github.com/NotDjz/GOAT_VISEUR">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero wrap" id="reglage">
+  <div class="hero-grid">
+    <div>
+      <h1>Le viseur que ton jeu ne te donne pas.</h1>
+      <p class="lede">Un viseur net, posé au centre de l'écran de ton choix, par-dessus
+      n'importe quel jeu. Dix presets, profils par jeu, aucune installation — un exe et son
+      fichier de config.</p>
+      <div class="cta">
+        <a class="btn" href="https://github.com/NotDjz/GOAT_VISEUR/releases">Télécharger</a>
+        <a class="btn ghost" href="https://github.com/NotDjz/GOAT_VISEUR">Voir le code</a>
+      </div>
+      <p class="note" style="margin-top:1.1rem">Windows · ~10 Mo · sans installateur</p>
+
+      <p class="lede" style="margin-top:2rem;font-size:0.9375rem">
+      Règle-le ici même. Le code en dessous est celui que tu peux coller dans l'application
+      pour retrouver exactement ce réglage.</p>
+    </div>
+
+    <div>
+      <div class="stage">
+        <svg viewBox="0 0 400 300" aria-label="Scène de démonstration">
+          <defs>
+            <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#2A3138"/>
+              <stop offset="1" stop-color="#151A1E"/>
+            </linearGradient>
+            <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#1A1E22"/>
+              <stop offset="1" stop-color="#0A0C0E"/>
+            </linearGradient>
+          </defs>
+          <rect width="400" height="170" fill="url(#sky)"/>
+          <rect y="170" width="400" height="130" fill="url(#floor)"/>
+          <!-- mur clair a gauche, pour voir le viseur sur du clair -->
+          <polygon points="0,40 120,120 120,220 0,290" fill="#8E9AA3" opacity="0.85"/>
+          <polygon points="0,40 120,120 120,140 0,70" fill="#AEBAC3" opacity="0.6"/>
+          <!-- volume sombre a droite -->
+          <polygon points="400,55 285,125 285,225 400,285" fill="#0F1316"/>
+          <!-- lignes de fuite -->
+          <g stroke="#39424A" stroke-width="1" opacity="0.55">
+            <line x1="120" y1="300" x2="185" y2="170"/>
+            <line x1="285" y1="300" x2="215" y2="170"/>
+            <line x1="0" y1="245" x2="400" y2="245"/>
+            <line x1="60" y1="205" x2="340" y2="205"/>
+            <line x1="140" y1="183" x2="260" y2="183"/>
+          </g>
+          <!-- cibles a trois distances -->
+          <g>
+            <circle cx="150" cy="196" r="15" fill="#3E464E"/>
+            <circle cx="150" cy="196" r="6" fill="#59636C"/>
+            <circle cx="248" cy="180" r="9" fill="#39424A"/>
+            <circle cx="248" cy="180" r="3.5" fill="#4E5860"/>
+            <circle cx="205" cy="168" r="5" fill="#333B42"/>
+          </g>
+          <rect width="400" height="300" fill="#000" opacity="0.28"/>
+        </svg>
+        <svg id="reticle" viewBox="0 0 400 300" aria-label="Aperçu du viseur"></svg>
+      </div>
+
+      <!-- Les min/max ci-dessous reprennent SLIDER_RANGES dans crosshair.pyw :
+           si une borne y change, la mettre a jour ici aussi. -->
+      <div class="controls">
+        <div class="ctl">
+          <label for="size">Taille</label>
+          <input type="range" id="size" min="5" max="60" value="20">
+          <output for="size" id="size-out">20</output>
+        </div>
+        <div class="ctl">
+          <label for="thickness">Épaisseur</label>
+          <input type="range" id="thickness" min="1" max="8" value="2">
+          <output for="thickness" id="thickness-out">2</output>
+        </div>
+        <div class="ctl">
+          <label for="gap">Espace</label>
+          <input type="range" id="gap" min="0" max="20" value="4">
+          <output for="gap" id="gap-out">4</output>
+        </div>
+        <div class="ctl">
+          <label for="dot_radius">Rayon point</label>
+          <input type="range" id="dot_radius" min="1" max="10" value="2">
+          <output for="dot_radius" id="dot_radius-out">2</output>
+        </div>
+        <div class="shapes">
+          <label><input type="checkbox" id="show_cross" checked> Croix</label>
+          <label><input type="checkbox" id="show_circle"> Cercle</label>
+          <label><input type="checkbox" id="show_dot" checked> Point</label>
+        </div>
+        <div class="swatch-row">
+          <span>COULEUR</span><input type="color" id="color" value="#00ff00">
+          <span style="margin-left:0.6rem">CONTOUR</span><input type="color" id="outline" value="#000000">
+        </div>
+      </div>
+
+      <div class="codebar">
+        <code id="code">VSR1-5-00FF00-000000-20-2-4-2</code>
+        <button type="button" id="copy">Copier</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section id="fonctions" class="wrap">
+  <h2>Ce qu'il fait de plus</h2>
+  <p class="sub">Trois choses qu'un viseur dessiné à la main sur un bout de scotch ne fait pas.</p>
+  <div class="features">
+    <div class="feature">
+      <h3>Profils par jeu</h3>
+      <p>Associe un jeu à un preset : le viseur bascule tout seul quand le jeu passe au premier
+      plan, et ton réglage manuel revient quand tu en sors.</p>
+    </div>
+    <div class="feature">
+      <h3>Codes de viseur</h3>
+      <p>Chaque réglage tient dans un code court à copier-coller — pour le partager sur Discord,
+      ou reprendre celui d'un autre.<br><span class="mono">VSR1-5-FFFFFF-690F96-13-1-3-1</span></p>
+    </div>
+    <div class="feature">
+      <h3>Démarrage avec Windows</h3>
+      <p>Une case à cocher pose un raccourci dans le dossier Démarrage. Rien dans le registre :
+      supprime le dossier, il ne reste aucune trace.</p>
+    </div>
+  </div>
+</section>
+
+<section id="raccourcis" class="wrap">
+  <h2>Raccourcis</h2>
+  <p class="sub"><code class="note">Mod</code> vaut <kbd>Ctrl+Alt</kbd> par défaut, et se change
+  en Ctrl+Shift, Alt+Shift ou Ctrl+Alt+Shift si l'un d'eux entre en conflit avec ton jeu.</p>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Raccourci</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td><kbd>Mod</kbd> + <kbd>S</kbd></td><td>Ouvrir ou fermer les paramètres</td></tr>
+        <tr><td><kbd>Mod</kbd> + <kbd>H</kbd></td><td>Masquer ou afficher le viseur</td></tr>
+        <tr><td><kbd>Mod</kbd> + <kbd>1</kbd>…<kbd>0</kbd></td><td>Changer de preset</td></tr>
+        <tr><td><kbd>Mod</kbd> + <kbd>Q</kbd></td><td>Quitter</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="wrap">
+  <h2>En bref</h2>
+  <dl class="specs">
+    <div class="spec"><dt>PLATEFORME</dt><dd>Windows 10 et 11</dd></div>
+    <div class="spec"><dt>INSTALLATION</dt><dd>Aucune — un exe portable</dd></div>
+    <div class="spec"><dt>PRESETS</dt><dd>10, commutables au clavier</dd></div>
+    <div class="spec"><dt>ÉCRANS</dt><dd>Multi-écran, viseur centré sur celui de ton choix</dd></div>
+    <div class="spec"><dt>CLICS</dt><dd>Traversants — la fenêtre n'intercepte rien</dd></div>
+    <div class="spec"><dt>CONFIG</dt><dd>Un <code class="note">config.json</code> à côté de l'exe</dd></div>
+  </dl>
+</section>
+
+<footer class="wrap">
+  <span>Viseur — overlay de viseur pour Windows</span>
+  <a href="https://github.com/NotDjz/GOAT_VISEUR">Code source</a>
+  <a href="https://github.com/NotDjz/GOAT_VISEUR/blob/main/LICENSE">Licence MIT</a>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var reticle = document.getElementById("reticle");
+  var codeEl = document.getElementById("code");
+  var NUMS = ["size", "thickness", "gap", "dot_radius"];
+  var FLAGS = ["show_cross", "show_circle", "show_dot"];
+
+  function read() {
+    var p = {};
+    NUMS.forEach(function (k) { p[k] = parseInt(document.getElementById(k).value, 10); });
+    FLAGS.forEach(function (k) { p[k] = document.getElementById(k).checked; });
+    p.color = document.getElementById("color").value;
+    p.outline = document.getElementById("outline").value;
+    return p;
+  }
+
+  function line(x1, y1, x2, y2, stroke, width) {
+    var el = document.createElementNS(NS, "line");
+    el.setAttribute("x1", x1); el.setAttribute("y1", y1);
+    el.setAttribute("x2", x2); el.setAttribute("y2", y2);
+    el.setAttribute("stroke", stroke); el.setAttribute("stroke-width", width);
+    return el;
+  }
+
+  function circle(cx, cy, r, opts) {
+    var el = document.createElementNS(NS, "circle");
+    el.setAttribute("cx", cx); el.setAttribute("cy", cy); el.setAttribute("r", r);
+    el.setAttribute("fill", opts.fill || "none");
+    if (opts.stroke) { el.setAttribute("stroke", opts.stroke); }
+    if (opts.width) { el.setAttribute("stroke-width", opts.width); }
+    return el;
+  }
+
+  // Même construction que _draw_crosshair() dans crosshair.pyw :
+  // un passage de contour épaissi, puis un passage de couleur.
+  function draw(p) {
+    var cx = 200, cy = 150;
+    var s = p.size, g = p.gap, t = p.thickness, ot = t + 2, dr = p.dot_radius;
+    // un passage de contour epaissi, puis un passage de couleur
+    var passes = [[p.outline, ot], [p.color, t]];
+    while (reticle.firstChild) { reticle.removeChild(reticle.firstChild); }
+
+    if (p.show_circle) {
+      passes.forEach(function (pair) {
+        reticle.appendChild(circle(cx, cy, s, { stroke: pair[0], width: pair[1] }));
+      });
+    }
+    if (p.show_cross) {
+      var ext = p.show_circle ? 5 : 0;
+      passes.forEach(function (pair) {
+        reticle.appendChild(line(cx - s - ext, cy, cx - g, cy, pair[0], pair[1]));
+        reticle.appendChild(line(cx + g, cy, cx + s + ext, cy, pair[0], pair[1]));
+        reticle.appendChild(line(cx, cy - s - ext, cx, cy - g, pair[0], pair[1]));
+        reticle.appendChild(line(cx, cy + g, cx, cy + s + ext, pair[0], pair[1]));
+      });
+    }
+    if (p.show_dot) {
+      reticle.appendChild(circle(cx, cy, dr + 1, { fill: p.outline }));
+      reticle.appendChild(circle(cx, cy, dr, { fill: p.color }));
+    }
+  }
+
+  // Meme format que preset_to_code() dans crosshair.pyw : si CODE_FIELDS ou le
+  // mapping des bits y changent, cette fonction doit suivre.
+  function code(p) {
+    var flags = (p.show_cross ? 1 : 0) | (p.show_circle ? 2 : 0) | (p.show_dot ? 4 : 0);
+    return ["VSR1", flags,
+            p.color.replace("#", "").toUpperCase(),
+            p.outline.replace("#", "").toUpperCase(),
+            p.size, p.thickness, p.gap, p.dot_radius].join("-");
+  }
+
+  function update() {
+    var p = read();
+    NUMS.forEach(function (k) { document.getElementById(k + "-out").textContent = p[k]; });
+    draw(p);
+    codeEl.textContent = code(p);
+  }
+
+  NUMS.concat(FLAGS, ["color", "outline"]).forEach(function (id) {
+    document.getElementById(id).addEventListener("input", update);
+  });
+
+  document.getElementById("copy").addEventListener("click", function () {
+    var btn = this, text = codeEl.textContent;
+    function done(ok) {
+      btn.textContent = ok ? "Copié" : "Échec";
+      setTimeout(function () { btn.textContent = "Copier"; }, 1400);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); },
+                                              function () { done(false); });
+    } else {
+      done(false);
+    }
+  });
+
+  update();
+}());
+</script>
+</body>
+</html>
