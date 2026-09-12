@@ -547,8 +547,27 @@ class SettingsWindow:
         self._build_actions()
 
         self._load_preset(self.editing)
+        # apres le mappage : place avant, Windows ecrase la position au moment
+        # ou il affiche la fenetre, et elle atterrit sur l'ecran principal.
+        self.win.after(0, self._place_on_monitor)
         self.win.lift()
         self.win.focus_force()
+
+    def _place_on_monitor(self):
+        """Centre la fenetre sur l'ecran choisi, ancree en haut si elle deborde.
+
+        A forte mise a l'echelle le contenu peut depasser la hauteur de l'ecran
+        (864 px a 150 %). Windows centrerait alors la fenetre et couperait le
+        haut comme le bas ; en l'ancrant on garde au moins le debut visible, et
+        la fenetre reste redimensionnable verticalement. Il n'y a pas de
+        defilement : c'est une limite connue, pas un oubli.
+        """
+        self.win.update_idletasks()
+        mon = self.monitors[_clamp_index(self.config["monitor"], len(self.monitors) - 1)]
+        need_w, need_h = self.win.winfo_reqwidth(), self.win.winfo_reqheight()
+        x = mon["x"] + max(10, (mon["w"] - need_w) // 2)
+        y = mon["y"] + max(10, (mon["h"] - need_h) // 2)
+        self.win.geometry("+%d+%d" % (x, y))
 
     def _section(self, text, pady_top=8, bg=BG, fill="x"):
         """Titre de section, puis le cadre deja empaquete qui recevra son contenu."""
@@ -703,21 +722,28 @@ class SettingsWindow:
         self._highlight_preset()
         self._load_preset(idx)
 
+    def _apply_values(self, values):
+        """Seul point d'ecriture des reglages dans les widgets.
+
+        Tk ignore `Scale.set()` sur un curseur desactive : l'etat est donc force
+        a normal pendant l'ecriture, et le grisage applique ensuite. Ecrire
+        ailleurs sans respecter cet ordre perd la valeur en silence, d'ou ce
+        passage oblige. `values` n'a pas besoin de porter `name`.
+        """
+        for key, var in self.shape_vars.items():
+            var.set(values["show_%s" % key])
+        for which in self.colors:
+            self._set_color(which, values[which])
+        for key, (scale, value, _name) in self.sliders.items():
+            scale.config(state="normal")
+            scale.set(values[key])
+            value.config(text=str(values[key]))
+        self._sync_enabled()
+
     def _load_preset(self, idx):
         p = self.config["presets"][idx]
         self.name_var.set(p["name"])
-        for key, var in self.shape_vars.items():
-            var.set(p["show_%s" % key])
-        for which in self.colors:
-            self._set_color(which, p[which])
-        # Tk ignore Scale.set() sur un curseur desactive : forcer l'etat actif
-        # pendant l'ecriture, puis appliquer le grisage du nouveau preset. Sans
-        # ce detour la valeur de l'ancien preset survit et Save la reecrit.
-        for key, (scale, value, _name) in self.sliders.items():
-            scale.config(state="normal")
-            scale.set(p[key])
-            value.config(text=str(p[key]))
-        self._sync_enabled()
+        self._apply_values(p)
         self.code_var.set(preset_to_code(p))
         self._update_preview()
 
@@ -787,14 +813,7 @@ class SettingsWindow:
         except ValueError as err:
             self._set_status("Code rejected: %s" % err)
             return
-        for key, var in self.shape_vars.items():
-            var.set(values["show_%s" % key])
-        for which in self.colors:
-            self._set_color(which, values[which])
-        for key, (scale, _value, _name) in self.sliders.items():
-            scale.config(state="normal")   # cf. _load_preset
-            scale.set(values[key])
-        self._sync_enabled()
+        self._apply_values(values)
         self._update_preview()
         self._set_status("Code applied to preset %d — Save to keep it" % (self.editing + 1))
 
