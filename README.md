@@ -3,10 +3,18 @@
 A crisp crosshair drawn on top of any game, centered on the monitor you choose.
 Ten presets, no installer — one exe and its config file next to it.
 
+**[Try it in your browser](https://notdjz.github.io/screen_scope/)** ·
+**[Download the latest release](https://github.com/NotDjz/screen_scope/releases/latest)**
+
+The page lets you shape a crosshair live and copy its code without installing
+anything; paste that code into the app to get the same one.
+
 ## Usage
 
-Run `ScreenScope.exe` — the crosshair appears at the centre of the screen.
-Right-click the system tray icon for the menu.
+Download `ScreenScope.exe` from the
+[releases page](https://github.com/NotDjz/screen_scope/releases/latest) and run it:
+the crosshair appears at the centre of the screen. Right-click the system tray icon
+for the menu.
 
 ## Hotkeys
 
