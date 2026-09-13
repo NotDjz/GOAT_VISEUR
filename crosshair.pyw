@@ -1,7 +1,7 @@
 """
 Crosshair Overlay — customizable, multi-monitor, 10 presets.
 
-Hotkeys (the modifier defaults to Ctrl+Alt, change it in the Shortcuts tab):
+Hotkeys (the modifier defaults to Ctrl+Shift, change it in the Shortcuts tab):
   Mod+S       → Open / close the settings window
   Mod+H       → Hide / show the crosshair
   Mod+1 to 0  → Switch preset (1-10, 0 = preset 10)
@@ -20,11 +20,17 @@ import pystray
 from PIL import Image, ImageDraw, ImageTk
 
 # ─── Paths (relative to the script / exe) ────────────────────────────────────
+# Two different places, and they must not be confused. SCRIPT_DIR is where the
+# user keeps the app, so it is where config.json belongs — that's the portability
+# promise. BUNDLE_DIR is where PyInstaller unpacked the files bundled *into* the
+# exe: in onefile mode that is a temporary folder, wiped on exit.
 if getattr(sys, "frozen", False):
     SCRIPT_DIR = os.path.dirname(sys.executable)
 else:
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+BUNDLE_DIR = getattr(sys, "_MEIPASS", SCRIPT_DIR)
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
+ICON_FILE = os.path.join(BUNDLE_DIR, "screenscope.ico")
 
 # ─── Win32 ───────────────────────────────────────────────────────────────────
 user32 = ctypes.windll.user32
@@ -39,7 +45,43 @@ except Exception:
 GWL_EXSTYLE = -20
 WS_EX_TRANSPARENT = 0x00000020
 WM_HOTKEY = 0x0312
+WM_SETICON = 0x0080
 WM_USER_REREGISTER = 0x0400 + 1
+ICON_SMALL, ICON_BIG = 0, 1
+IMAGE_ICON = 1
+LR_LOADFROMFILE = 0x0010
+GA_ROOT = 2
+SM_CXICON, SM_CXSMICON = 11, 49
+
+# Prototypes live here, with the constants: left untyped, ctypes assumes C int,
+# which truncates a 64-bit handle, and passes a *pointer* where a WCHAR is meant.
+user32.GetAncestor.restype = ctypes.c_void_p
+user32.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+user32.LoadImageW.restype = ctypes.c_void_p
+user32.LoadImageW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint,
+                              ctypes.c_int, ctypes.c_int, ctypes.c_uint]
+user32.SendMessageW.restype = ctypes.c_void_p
+user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
+                                ctypes.c_void_p, ctypes.c_void_p]
+user32.GetKeyboardLayout.restype = ctypes.c_void_p
+user32.VkKeyScanExW.restype = ctypes.c_short
+user32.VkKeyScanExW.argtypes = [ctypes.c_wchar, ctypes.c_void_p]
+
+
+def real_hwnd(win):
+    """The window Windows actually shows, for a tk window id.
+
+    Tk's `winfo_id()` is not it: an `overrideredirect` Toplevel's id is a child of
+    the real frame, and mapping a plain Toplevel re-parents it under a new one.
+    Measured on both kinds here: `GetAncestor(GA_ROOT)` returns the same handle the
+    older `GetParent` call did, and needs no fallback, since it returns the window
+    itself when that is already the root.
+
+    Only valid once the window is mapped — before that it answers about a handle
+    Tk is about to replace.
+    """
+    return user32.GetAncestor(win.winfo_id(), GA_ROOT)
+
 
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
@@ -52,6 +94,13 @@ MODIFIER_CHOICES = {
     "Alt+Shift":      MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
     "Ctrl+Alt+Shift": MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
 }
+
+# Windows transmits AltGr as Ctrl+Alt, so Ctrl+Alt is the one combination that
+# cannot be claimed safely: on every layout that has an AltGr level — French,
+# German, Spanish, Polish, Portuguese — it takes real characters off the keyboard.
+# Ctrl+Alt stays on offer for the layouts that have no AltGr; it is simply not the
+# default any more, and `stolen_characters()` says out loud what it costs.
+DEFAULT_MODIFIER = "Ctrl+Shift"
 
 # ─── GUI theme ───────────────────────────────────────────────────────────────
 # Gunsmith's bench: the interface is a neutral tool, and the orange marks only
@@ -225,7 +274,7 @@ def load_config(monitor_count=None):
         cfg.get("monitor"), None if monitor_count is None else monitor_count - 1
     )
     if not isinstance(cfg.get("modifier"), str) or cfg["modifier"] not in MODIFIER_CHOICES:
-        cfg["modifier"] = "Ctrl+Alt"
+        cfg["modifier"] = DEFAULT_MODIFIER
     # leftover from per-game profiles: drop it rather than carry it forward on
     # every save, otherwise it survives indefinitely in existing files.
     cfg.pop("profiles", None)
@@ -345,6 +394,59 @@ def create_tray_icon_image(size=64):
     return img
 
 
+# ─── Window icon ─────────────────────────────────────────────────────────────
+# screenscope.ico carries six hand-drawn sizes (16 to 256). Tk's `iconphoto` can
+# only be given one image, which Windows then shrinks for the title bar — a 2px
+# cross scaled to 16px comes out a hairline. Going through WM_SETICON lets
+# LoadImageW pick the right entry out of the group for each size instead.
+
+_window_icons = None
+
+
+def _load_window_icons():
+    """Loads the .ico once, at the two sizes Windows asks a window for.
+
+    The handles are cached because they stay valid for the life of the process:
+    loading them again on every open would leak two icons each time. A failure is
+    cached too — an empty list — so a missing file is not retried on every open.
+    """
+    global _window_icons
+    if _window_icons is None:
+        _window_icons = []
+        # The sizes Windows actually asks for grow with the DPI scale: 16/32 at
+        # 100%, 20/40 at 125%, 24/48 at 150%. Hard-coding 16/32 would hand a
+        # scaled display an upscaled icon, which is the softness this whole
+        # function exists to avoid.
+        for which, metric, fallback in ((ICON_SMALL, SM_CXSMICON, 16),
+                                        (ICON_BIG, SM_CXICON, 32)):
+            size = user32.GetSystemMetrics(metric) or fallback
+            handle = user32.LoadImageW(None, ICON_FILE, IMAGE_ICON, size, size,
+                                       LR_LOADFROMFILE)
+            if handle:
+                _window_icons.append((which, handle))
+    return _window_icons
+
+
+def apply_window_icon(win):
+    """Puts screenscope.ico on a window's title bar and taskbar button.
+
+    Returns False when the icon can't be used — run from a source tree without it,
+    or an exe built without `--add-data` — so the caller falls back to `iconphoto`.
+    """
+    try:
+        icons = _load_window_icons()
+        if not icons:
+            return False
+        hwnd = real_hwnd(win)
+        if not hwnd:
+            return False
+        for which, handle in icons:
+            user32.SendMessageW(hwnd, WM_SETICON, which, handle)
+        return True
+    except Exception:
+        return False
+
+
 # ─── Global Hotkeys (Win32 RegisterHotKey) ───────────────────────────────────
 
 HOTKEY_QUIT = 1
@@ -370,6 +472,60 @@ HOTKEY_ROWS = (
     (tuple(range(11, 21)), "Preset 1-10", "1 … 0"),
     ((HOTKEY_QUIT,), "Quit", None),
 )
+
+# VkKeyScan reports the modifiers a character needs using its own bit values, and
+# they are NOT RegisterHotKey's: here 1 is Shift and 4 is Alt, where MOD_ALT is 1
+# and MOD_SHIFT is 4. Translating between the two is the whole subtlety below.
+VKSCAN_SHIFT, VKSCAN_CONTROL, VKSCAN_ALT = 0x01, 0x02, 0x04
+
+# The character universe we ask about. A hand-picked list would under-report on
+# any layout whose AltGr level reaches outside it, and the count shown to the user
+# would then be quietly wrong rather than absent; these blocks cover what keyboard
+# layouts actually put behind AltGr. Measured cost of the whole scan: well under a
+# millisecond, so breadth is free here.
+SCANNED_CHARACTERS = [chr(c) for c in
+                      list(range(0x20, 0x7F))      # printable ASCII
+                      + list(range(0xA0, 0x180))   # Latin-1 Supplement, Latin Extended-A
+                      + list(range(0x2B0, 0x2E0))  # spacing modifiers (diacritics)
+                      + list(range(0x2010, 0x2070))  # general punctuation
+                      + list(range(0x20A0, 0x20C0))]  # currency signs
+
+def stolen_characters(modifier_flags):
+    """Characters the active layout can no longer type under this modifier.
+
+    Windows sends AltGr as Ctrl+Alt, so claiming Ctrl+Alt+<key> globally takes
+    AltGr+<key> off the keyboard: on a French AZERTY that is @ ~ # { [ | ` and \\.
+    Rather than guess from the layout's language id — there are dozens of layouts
+    with an AltGr level — we ask the layout itself: `VkKeyScanExW` answers, for one
+    character, which key and which modifiers produce it. A character whose required
+    state is exactly this modifier's, on a key we register, is a character lost.
+
+    Returns [(key label, character)], empty on a layout with nothing behind AltGr.
+    """
+    wanted = 0
+    if modifier_flags & MOD_SHIFT:
+        wanted |= VKSCAN_SHIFT
+    if modifier_flags & MOD_CONTROL:
+        wanted |= VKSCAN_CONTROL
+    if modifier_flags & MOD_ALT:
+        wanted |= VKSCAN_ALT
+
+    try:
+        layout = user32.GetKeyboardLayout(0)
+        keys = set(HOTKEY_DEFS.values())
+        stolen = {}
+        for char in SCANNED_CHARACTERS:
+            scan = user32.VkKeyScanExW(char, layout)
+            if scan == -1:      # this layout cannot produce it in one keystroke
+                continue
+            vk, state = scan & 0xFF, (scan >> 8) & 0x07
+            if state == wanted and vk in keys:
+                stolen.setdefault(chr(vk), char)
+        return sorted(stolen.items())
+    except Exception:
+        # never let a keyboard query stop the window from opening: a .pyw has no
+        # console, so an unhandled error here would close it without a word.
+        return []
 
 
 class HotkeyManager:
@@ -500,9 +656,7 @@ class Overlay:
             canvas.create_oval(cx-dr, cy-dr, cx+dr, cy+dr, fill=color, outline=color)
 
     def _make_click_through(self):
-        hwnd = user32.GetParent(self.win.winfo_id())
-        if not hwnd:
-            hwnd = self.win.winfo_id()
+        hwnd = real_hwnd(self.win)
         self.hwnd = hwnd
         ex = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
         user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_TRANSPARENT)
@@ -568,8 +722,6 @@ class SettingsWindow:
         self.win.resizable(False, True)
         self.win.configure(bg=BG)
         self.win.attributes("-topmost", True)
-        self._icon_photo = ImageTk.PhotoImage(create_tray_icon_image(32))
-        self.win.iconphoto(False, self._icon_photo)
         self.win.protocol("WM_DELETE_WINDOW",
                           lambda: (self.win.destroy(), setattr(self, "win", None)))
 
@@ -604,6 +756,7 @@ class SettingsWindow:
         # position when it shows the window, landing it on the primary screen.
         self.win.after(0, self._lock_height)
         self.win.after(0, self._place_on_monitor)
+        self.win.after(0, self._apply_icon)
         self.win.lift()
         self.win.focus_force()
 
@@ -617,6 +770,25 @@ class SettingsWindow:
         for name, btn in self.tab_btns.items():
             active = name == key
             btn.config(bg=ACCENT if active else BG3, fg="#1A1207" if active else FG)
+
+    def _apply_icon(self):
+        """Sets the window icon, after mapping like the placement above.
+
+        Measured: before the window is mapped, `winfo_id()` is its own top-level;
+        mapping wraps it in a new one, and icons set on the old handle are
+        orphaned. Same reason `_place_on_monitor()` waits.
+        """
+        if not (self.win and self.win.winfo_exists()):
+            return
+        # not left to the ordering of the sibling callbacks: an unmapped window
+        # answers with the handle Tk is about to replace, and the icon lands
+        # nowhere while apply_window_icon() still reports success.
+        self.win.update_idletasks()
+        # the real multi-size icon first; the single 32px drawing is the fallback
+        # for a source tree without screenscope.ico beside it.
+        if not apply_window_icon(self.win):
+            self._icon_photo = ImageTk.PhotoImage(create_tray_icon_image(32))
+            self.win.iconphoto(False, self._icon_photo)
 
     def _lock_height(self):
         """Pins the height to the taller of the two tabs.
@@ -641,7 +813,7 @@ class SettingsWindow:
 
     def _build_shortcuts(self, tab):
         f = self._section(tab, "Modifier", 12)
-        self.modifier_var = tk.StringVar(value=self.config.get("modifier", "Ctrl+Alt"))
+        self.modifier_var = tk.StringVar(value=self.config["modifier"])
         om = tk.OptionMenu(f, self.modifier_var, *MODIFIER_CHOICES.keys(),
                            command=self._change_modifier)
         om.config(bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
@@ -681,6 +853,41 @@ class SettingsWindow:
             if taken:
                 tk.Label(row, text="taken by another app", bg=BG2, fg=FG2,
                          font=FONT_S, anchor="e").pack(side="right")
+        self._show_stolen(modifier)
+
+    def _show_stolen(self, modifier):
+        """Warns when the chosen modifier costs the keyboard real characters.
+
+        Naming them beats a vague "may conflict": the user recognises exactly what
+        stopped working. Rebuilt with the rows, so it appears and disappears on its
+        own as the menu changes, and never shows on a layout without an AltGr level.
+        """
+        flags = MODIFIER_CHOICES[modifier]
+        lost = stolen_characters(flags)
+        if not lost:
+            return
+        # Windows sends AltGr as Ctrl+Alt, so for those combinations AltGr is the
+        # key the user actually presses. `stolen_characters()` is generic, though,
+        # so a layout could report a loss under a modifier that has nothing to do
+        # with AltGr: naming AltGr there would tell the user to press a key that
+        # produces nothing.
+        altgr = flags & MOD_CONTROL and flags & MOD_ALT
+        pressed = ("AltGr+Shift" if flags & MOD_SHIFT else "AltGr") if altgr else modifier
+        why = ("Windows sends AltGr as Ctrl+Alt, so these shortcuts win over the "
+               "characters. Pick another modifier to type them again." if altgr else
+               "These shortcuts win over the characters your layout puts there. "
+               "Pick another modifier to type them again.")
+        box = tk.Frame(self.shortcut_rows, bg=BG2)
+        box.pack(fill="x", pady=(6, 1))
+        tk.Label(box, text="%s takes %d characters off your keyboard"
+                 % (modifier, len(lost)), bg=BG2, fg=ACCENT, font=FONT_B,
+                 anchor="w", padx=8, pady=4).pack(fill="x")
+        tk.Label(box, text="   ".join("%s+%s = %s" % (pressed, key, char)
+                                      for key, char in lost),
+                 bg=BG2, fg=FG, font=FONT_MONO, anchor="w", padx=8,
+                 justify="left", wraplength=430).pack(fill="x")
+        tk.Label(box, text=why, bg=BG2, fg=FG2, font=FONT_S, anchor="w", padx=8,
+                 justify="left", wraplength=430).pack(fill="x", pady=(2, 6))
 
     def _change_modifier(self, choice):
         if choice not in MODIFIER_CHOICES:
@@ -1088,8 +1295,7 @@ def main():
         callbacks[10 + i] = lambda idx=i-1: switch_preset(idx)
     callbacks[20] = lambda: switch_preset(9)
 
-    mod_flags = MODIFIER_CHOICES.get(config.get("modifier", "Ctrl+Alt"),
-                                      MODIFIER_CHOICES["Ctrl+Alt"])
+    mod_flags = MODIFIER_CHOICES[config["modifier"]]
     hotkeys = HotkeyManager(root, callbacks, mod_flags)
     settings.hotkeys = hotkeys
     tray = TrayIcon(root, config, overlay, settings, shutdown)

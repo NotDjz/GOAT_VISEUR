@@ -17,10 +17,16 @@ Right-click the system tray icon for the menu.
 | `Mod+1`–`0` | Switch preset (1–10) |
 | `Mod+Q` | Quit |
 
-`Mod` is `Ctrl+Alt` by default. If one of these clashes with your game, pick
-another one in the **Shortcuts** tab — `Ctrl+Shift`, `Alt+Shift` or
+`Mod` is `Ctrl+Shift` by default. If one of these clashes with your game, pick
+another one in the **Shortcuts** tab: `Ctrl+Alt`, `Alt+Shift` or
 `Ctrl+Alt+Shift`. It applies straight away, and the tab tells you if Windows
 refused a key because another application already holds it.
+
+Think twice before picking `Ctrl+Alt` on a keyboard that has an AltGr key.
+Windows sends AltGr as Ctrl+Alt, so these shortcuts win over the characters
+AltGr types: on a French AZERTY layout that takes ``@ ~ # { [ | ` \`` off the
+keyboard entirely. The Shortcuts tab names the exact characters your own layout
+would lose, and says nothing on a layout that has no AltGr level.
 
 ## Settings
 
@@ -48,6 +54,17 @@ If you had ticked that checkbox, the shortcut it created is still there and Scre
 will keep starting with Windows — delete
 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Viseur.lnk` if you
 don't want that. A leftover `profiles` key in `config.json` is dropped on next save.
+
+## Tests
+
+```
+py testsun_all.py
+```
+
+Windows only, and it needs a desktop session: two of the three batteries open real
+windows, on the second screen when there is one. They cover the characters a hotkey
+modifier takes off the keyboard, the config defaults, the window icon, and the
+overlay staying click-through.
 
 ## Rebuilding (optional)
 
