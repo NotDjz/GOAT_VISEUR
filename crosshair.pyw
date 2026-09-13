@@ -439,7 +439,7 @@ class Overlay:
 
         self.win = tk.Toplevel(root)
         self.win.withdraw()
-        self.win.title("ViseurOverlay")
+        self.win.title("ScreenScopeOverlay")
         self.win.overrideredirect(True)
         self.win.attributes("-topmost", True)
         self.win.attributes("-transparentcolor", self.TC)
@@ -560,7 +560,7 @@ class SettingsWindow:
 
     def _build(self):
         self.win = tk.Toplevel(self.root)
-        self.win.title("Viseur — Settings")
+        self.win.title("Screen Scope — Settings")
         # No fixed geometry: the height the content needs scales with DPI (682 px
         # at 100%, 787 at 125%, 864 at 150%), and a hard-coded size would push the
         # Save button off the window. Let Tk size it, and allow vertical resizing
@@ -1032,7 +1032,7 @@ class TrayIcon:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda: self.root.after(0, self.shutdown_fn)),
         )
-        self.icon = pystray.Icon("Viseur", image, "Viseur", menu)
+        self.icon = pystray.Icon("Screen Scope", image, "Screen Scope", menu)
         threading.Thread(target=self.icon.run, daemon=True).start()
 
     def _make_switch(self, idx):

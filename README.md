@@ -1,11 +1,11 @@
-# Viseur — Crosshair Overlay
+# Screen Scope — Crosshair Overlay
 
 A crisp crosshair drawn on top of any game, centered on the monitor you choose.
 Ten presets, no installer — one exe and its config file next to it.
 
 ## Usage
 
-Run `Viseur.exe` — the crosshair appears at the centre of the screen.
+Run `ScreenScope.exe` — the crosshair appears at the centre of the screen.
 Right-click the system tray icon for the menu.
 
 ## Hotkeys
@@ -44,7 +44,7 @@ Invalid codes are refused with a reason, and nothing is changed.
 ## Upgrading from an earlier build
 
 Two earlier features are gone: per-game profiles and the run-at-startup checkbox.
-If you had ticked that checkbox, the shortcut it created is still there and Viseur
+If you had ticked that checkbox, the shortcut it created is still there and Screen Scope
 will keep starting with Windows — delete
 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\Viseur.lnk` if you
 don't want that. A leftover `profiles` key in `config.json` is dropped on next save.
@@ -55,4 +55,4 @@ Needs Python 3 and `py -m pip install -r requirements.txt`
 
 1. `py generate_icon.py`
 2. `build.bat`
-3. The executable lands in `dist\Viseur.exe`
+3. The executable lands in `dist\ScreenScope.exe`
