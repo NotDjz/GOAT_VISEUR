@@ -63,6 +63,12 @@ user32.LoadImageW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint,
 user32.SendMessageW.restype = ctypes.c_void_p
 user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
                                 ctypes.c_void_p, ctypes.c_void_p]
+user32.GetKeyboardLayout.restype = ctypes.c_void_p
+user32.VkKeyScanExW.restype = ctypes.c_short
+# a WCHAR by value: left untyped, ctypes passes a *pointer* to the string and the
+# call then reports no conflict at all, whatever the layout.
+user32.VkKeyScanExW.argtypes = [ctypes.c_wchar, ctypes.c_void_p]
+user32.GetAsyncKeyState.restype = ctypes.c_short
 
 
 def real_hwnd(win):
@@ -83,29 +89,88 @@ def real_hwnd(win):
 MOD_ALT = 0x0001
 MOD_CONTROL = 0x0002
 MOD_SHIFT = 0x0004
+MOD_WIN = 0x0008
 MOD_NOREPEAT = 0x4000
 
-MODIFIER_CHOICES = {
-    "Ctrl+Shift":     MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
-    "Alt+Shift":      MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
-    "Ctrl+Alt+Shift": MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
-}
+# The modifier is free: the user presses whichever combination they want and the
+# Shortcuts tab captures it. These two functions are the whole format, and the
+# order here is the canonical one, so one combination always spells the same way.
+# Name, flag, and the virtual keys that report it held. Three columns rather than
+# two tables kept in step by hand, the way SLIDER_SPECS already does it. Ctrl, Alt
+# and Shift each have one key covering both sides; the Windows key does not.
+MODIFIER_PARTS = (("Ctrl", MOD_CONTROL, (0x11,)),
+                  ("Alt", MOD_ALT, (0x12,)),
+                  ("Shift", MOD_SHIFT, (0x10,)),
+                  ("Win", MOD_WIN, (0x5B, 0x5C)))
+MODIFIER_BITS = {name: bit for name, bit, _keys in MODIFIER_PARTS}
 
-# Ctrl+Alt is deliberately absent. This is the only record of why in the code;
-# README.md and docs/index.html say the same to users, so change all three
-# together.
-#
-# Windows transmits AltGr as Ctrl+Alt, so claiming it alongside the digit keys
-# took eight characters off a French AZERTY keyboard: @ ~ # { [ | ` and \.
-# Measured against the layout with VkKeyScanExW, which reports @ as vk 0x30 plus
-# Ctrl+Alt, exactly the hotkey this app used to register for preset 10.
-#
-# Removing the name is also what repairs the files that already hold it:
-# load_config() no longer recognises it and falls back to the default, so a config
-# written before this stops stealing characters the next time it loads. The file
-# itself is untouched, _save() staying the only writer. Do not put the name back.
-#
-# The three that remain cost nothing on a French layout, measured the same way.
+# Two modifiers minimum, and this is not arbitrary. A single one turns every hotkey
+# key into a global grab: with just Ctrl, the app would eat Ctrl+S, Ctrl+Q and
+# Ctrl+1..0 in every other application on the machine, so the user would lose Save
+# and Quit everywhere. It also keeps a bare Win press, which opens the Start menu,
+# from ever being a valid capture.
+MIN_MODIFIERS = 2
+
+
+def modifier_flags(name):
+    """`"Ctrl+Shift"` to RegisterHotKey flags, or None if it is not usable.
+
+    Rejects anything that is not a string, names a part we do not know, repeats a
+    part, or carries fewer than MIN_MODIFIERS. Returning None rather than raising
+    lets `load_config()` fall back the way it does for every other bad field.
+    """
+    if not isinstance(name, str):
+        return None
+    parts = name.split("+")
+    if len(parts) < MIN_MODIFIERS or len(set(parts)) != len(parts):
+        return None
+    flags = 0
+    for part in parts:
+        if part not in MODIFIER_BITS:
+            return None
+        flags |= MODIFIER_BITS[part]
+    return flags | MOD_NOREPEAT
+
+
+def modifier_name(flags):
+    """RegisterHotKey flags back to the canonical spelling."""
+    return "+".join(name for name, bit, _keys in MODIFIER_PARTS if flags & bit)
+
+
+VK_ESCAPE = 0x1B
+
+
+def key_down(vk):
+    """True while that virtual key is physically held."""
+    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def held_modifiers():
+    """The modifier flags physically held down right now.
+
+    Read from the keyboard state, not from tk events, because tk never sees two of
+    the four: measured, Windows delivers Alt as a system key and the shell swallows
+    the Windows key before any application gets it, so only Ctrl and Shift arrive as
+    `KeyPress`. An event-driven capture could therefore not offer Alt or Win at all.
+
+    Deliberately not a `WH_KEYBOARD_LL` hook, which could also swallow the keys: a
+    global low-level keyboard hook installed by a game overlay is exactly what
+    anti-cheat software is built to notice. Polling sees everything we need.
+    """
+    flags = 0
+    for _name, bit, keys in MODIFIER_PARTS:
+        if any(key_down(vk) for vk in keys):
+            flags |= bit
+    return flags
+
+
+# Windows transmits AltGr as Ctrl+Alt, so Ctrl+Alt is a combination that costs the
+# user real characters: on a French AZERTY it takes @ ~ # { [ | ` and \ off the
+# keyboard. Measured with VkKeyScanExW, which reports @ as vk 0x30 plus Ctrl+Alt,
+# exactly the hotkey this app registers for preset 10. It is not forbidden - the
+# choice is the user's - but `stolen_characters()` names what it costs before they
+# keep it, and the default below is chosen to cost nothing.
+
 DEFAULT_MODIFIER = "Ctrl+Shift"
 
 # ─── GUI theme ───────────────────────────────────────────────────────────────
@@ -279,11 +344,12 @@ def load_config(monitor_count=None):
     cfg["monitor"] = _clamp_index(
         cfg.get("monitor"), None if monitor_count is None else monitor_count - 1
     )
-    # An unknown name covers retired ones too: dropping a modifier from
-    # MODIFIER_CHOICES is precisely how a config that still names it gets repaired,
-    # so putting one back would silently un-repair every file that holds it.
-    if not isinstance(cfg.get("modifier"), str) or cfg["modifier"] not in MODIFIER_CHOICES:
-        cfg["modifier"] = DEFAULT_MODIFIER
+    # `modifier_flags()` is the single reader of the format, and it answers None for
+    # anything unusable: a non-string, an unknown part, a repeat, or fewer than two
+    # modifiers. Normalizing through it also rewrites the spelling into canonical
+    # order, so a hand-edited "Shift+Ctrl" comes back as "Ctrl+Shift".
+    flags = modifier_flags(cfg.get("modifier"))
+    cfg["modifier"] = DEFAULT_MODIFIER if flags is None else modifier_name(flags)
     # leftover from per-game profiles: drop it rather than carry it forward on
     # every save, otherwise it survives indefinitely in existing files.
     cfg.pop("profiles", None)
@@ -483,11 +549,73 @@ HOTKEY_ROWS = (
 )
 
 
+# VkKeyScan reports the modifiers a character needs using its own bit values, and
+# they are NOT RegisterHotKey's: here 1 is Shift and 4 is Alt, where MOD_ALT is 1
+# and MOD_SHIFT is 4. Translating between the two is the whole subtlety below.
+VKSCAN_SHIFT, VKSCAN_CONTROL, VKSCAN_ALT = 0x01, 0x02, 0x04
+
+# The character universe we ask about. A hand-picked list would under-report on
+# any layout whose AltGr level reaches outside it, and the count shown to the user
+# would then be quietly wrong rather than absent; these blocks cover what keyboard
+# layouts actually put behind AltGr. Measured cost of the whole scan: well under a
+# millisecond, so breadth is free here.
+SCANNED_CHARACTERS = [chr(c) for c in
+                      list(range(0x20, 0x7F))      # printable ASCII
+                      + list(range(0xA0, 0x180))   # Latin-1 Supplement, Latin Extended-A
+                      + list(range(0x2B0, 0x2E0))  # spacing modifiers (diacritics)
+                      + list(range(0x2010, 0x2070))  # general punctuation
+                      + list(range(0x20A0, 0x20C0))]  # currency signs
+
+def stolen_characters(flags):
+    """Characters the active layout can no longer type under this modifier.
+
+    Windows sends AltGr as Ctrl+Alt, so claiming Ctrl+Alt+<key> globally takes
+    AltGr+<key> off the keyboard: on a French AZERTY that is @ ~ # { [ | ` and \\.
+    Rather than guess from the layout's language id — there are dozens of layouts
+    with an AltGr level — we ask the layout itself: `VkKeyScanExW` answers, for one
+    character, which key and which modifiers produce it. A character whose required
+    state is exactly this modifier's, on a key we register, is a character lost.
+
+    Returns [(key label, character)], empty on a layout with nothing behind AltGr.
+    """
+    # VkKeyScan describes a character with three state bits only: 1 Shift, 2 Ctrl,
+    # 4 Alt. There is none for Win, because Windows never routes that key into the
+    # layout, so no character can require it. Measured: without this guard a
+    # combination carrying Win is tested as if Win were not held at all, and
+    # Shift+Win claims the 13 characters plain Shift produces.
+    if flags & MOD_WIN:
+        return []
+    wanted = 0
+    if flags & MOD_SHIFT:
+        wanted |= VKSCAN_SHIFT
+    if flags & MOD_CONTROL:
+        wanted |= VKSCAN_CONTROL
+    if flags & MOD_ALT:
+        wanted |= VKSCAN_ALT
+
+    try:
+        layout = user32.GetKeyboardLayout(0)
+        keys = set(HOTKEY_DEFS.values())
+        stolen = {}
+        for char in SCANNED_CHARACTERS:
+            scan = user32.VkKeyScanExW(char, layout)
+            if scan == -1:      # this layout cannot produce it in one keystroke
+                continue
+            vk, state = scan & 0xFF, (scan >> 8) & 0x07
+            if state == wanted and vk in keys:
+                stolen.setdefault(chr(vk), char)
+        return sorted(stolen.items())
+    except Exception:
+        # never let a keyboard query stop the window from opening: a .pyw has no
+        # console, so an unhandled error here would close it without a word.
+        return []
+
+
 class HotkeyManager:
-    def __init__(self, root, callbacks, modifier_flags):
+    def __init__(self, root, callbacks, flags):
         self.root = root
         self.callbacks = callbacks
-        self._mod = modifier_flags
+        self._mod = flags
         self.refused = []
         self._thread_id = None
         self._ready = threading.Event()
@@ -522,14 +650,14 @@ class HotkeyManager:
                 if cb:
                     self.root.after(0, cb)
 
-    def change_modifier(self, modifier_flags):
+    def change_modifier(self, flags):
         """Asks the thread that owns the hotkeys to re-register them.
 
         `RegisterHotKey` binds hotkeys to the calling thread: re-registering
         from here would attach them to the wrong one and `WM_HOTKEY` would never
         arrive again.
         """
-        self._mod = modifier_flags
+        self._mod = flags
         if self._thread_id:
             user32.PostThreadMessageW(self._thread_id, WM_USER_REREGISTER, 0, 0)
 
@@ -768,16 +896,22 @@ class SettingsWindow:
 
     def _build_shortcuts(self, tab):
         f = self._section(tab, "Modifier", 12)
-        self.modifier_var = tk.StringVar(value=self.config["modifier"])
-        om = tk.OptionMenu(f, self.modifier_var, *MODIFIER_CHOICES.keys(),
-                           command=self._change_modifier)
-        om.config(bg=BG3, fg=FG, activebackground=BG2, activeforeground=FG,
-                  highlightthickness=0, font=FONT_S, relief="flat")
-        om["menu"].config(bg=BG3, fg=FG, activebackground=ACCENT, font=FONT_S)
-        om.pack(fill="x")
+        # `config["modifier"]` is the single copy: load_config() guarantees it parses,
+        # and _change_modifier() is the only writer. No StringVar mirroring it.
+        self._capture_after = None
+        row = tk.Frame(f, bg=BG)
+        row.pack(fill="x")
+        self.modifier_label = tk.Label(row, text=self.config["modifier"], bg=BG3, fg=FG,
+                                       font=FONT_MONO, anchor="w", padx=10, pady=5)
+        self.modifier_label.pack(side="left", fill="x", expand=True)
+        self.capture_btn = tk.Button(row, text="Change", command=self._toggle_capture,
+                                     bg=BG3, fg=FG, activebackground=ACCENT,
+                                     activeforeground="#1A1207", relief="flat", bd=0,
+                                     font=FONT_S, padx=14, pady=4)
+        self.capture_btn.pack(side="right", padx=(6, 0))
 
-        tk.Label(tab, text="Applies to every shortcut below. Change it when one of them "
-                           "clashes with a game.",
+        tk.Label(tab, text="Applies to every shortcut below. Press any combination of "
+                           "Ctrl, Alt, Shift and Win, at least two of them.",
                  bg=BG, fg=FG2, font=FONT_S, justify="left", wraplength=440,
                  anchor="w").pack(fill="x", padx=15, pady=(5, 0))
 
@@ -793,7 +927,7 @@ class SettingsWindow:
             return
         for child in self.shortcut_rows.winfo_children():
             child.destroy()
-        modifier = self.modifier_var.get()
+        modifier = self.config["modifier"]
         refused = set(self.hotkeys.refused) if self.hotkeys else set()
         for ids, label, keys in HOTKEY_ROWS:
             keys = keys or chr(HOTKEY_DEFS[ids[0]])
@@ -808,16 +942,117 @@ class SettingsWindow:
             if taken:
                 tk.Label(row, text="taken by another app", bg=BG2, fg=FG2,
                          font=FONT_S, anchor="e").pack(side="right")
+        self._show_stolen(modifier)
+
+    def _show_stolen(self, modifier):
+        """Warns when the chosen modifier costs the keyboard real characters.
+
+        Naming them beats a vague "may conflict": the user recognises exactly what
+        stopped working. Rebuilt with the rows, so it appears and disappears on its
+        own as the capture changes it, and never shows on a layout without an AltGr level.
+        """
+        flags = modifier_flags(modifier)
+        if flags is None:
+            return
+        lost = stolen_characters(flags)
+        if not lost:
+            return
+        # Windows sends AltGr as Ctrl+Alt, so for those combinations AltGr is the
+        # key the user actually presses. `stolen_characters()` is generic, though,
+        # so a layout could report a loss under a modifier that has nothing to do
+        # with AltGr: naming AltGr there would tell the user to press a key that
+        # produces nothing.
+        if flags & MOD_CONTROL and flags & MOD_ALT:
+            pressed = "AltGr+Shift" if flags & MOD_SHIFT else "AltGr"
+            why = ("Windows sends AltGr as Ctrl+Alt, so these shortcuts win over the "
+                   "characters. Pick another modifier to type them again.")
+        else:
+            pressed = modifier
+            why = ("These shortcuts win over the characters your layout puts there. "
+                   "Pick another modifier to type them again.")
+        box = tk.Frame(self.shortcut_rows, bg=BG2)
+        box.pack(fill="x", pady=(6, 1))
+        tk.Label(box, text="%s takes %d characters off your keyboard"
+                 % (modifier, len(lost)), bg=BG2, fg=ACCENT, font=FONT_B,
+                 anchor="w", padx=8, pady=4).pack(fill="x")
+        tk.Label(box, text="   ".join("%s+%s = %s" % (pressed, key, char)
+                                      for key, char in lost),
+                 bg=BG2, fg=FG, font=FONT_MONO, anchor="w", padx=8,
+                 justify="left", wraplength=430).pack(fill="x")
+        tk.Label(box, text=why, bg=BG2, fg=FG2, font=FONT_S, anchor="w", padx=8,
+                 justify="left", wraplength=430).pack(fill="x", pady=(2, 6))
+
+    CAPTURE_POLL_MS = 30
+    CAPTURE_TIMEOUT_MS = 8000
+
+    def _toggle_capture(self):
+        """Start watching for a combination, or stop if already watching.
+
+        One callback instead of swapping the button's command, so `_capture_after`
+        stays the only thing that says whether a capture is running.
+        """
+        if self._capture_after is not None:
+            self._end_capture(0)
+            return
+        self._capture_peak = 0
+        self._capture_ticks = 0
+        self.capture_btn.config(text="Cancel")
+        self.modifier_label.config(text="Press your combination, Esc to cancel",
+                                   fg=ACCENT)
+        self._poll_capture()
+
+    def _poll_capture(self):
+        """Accumulate what is held, and commit once everything is released.
+
+        The widest set seen wins, so letting go of one key at a time cannot capture
+        the leftovers instead of the whole combination.
+        """
+        self._capture_after = None
+        if not (self.win and self.win.winfo_exists()):
+            return
+        self._capture_ticks += 1
+        timed_out = self._capture_ticks * self.CAPTURE_POLL_MS >= self.CAPTURE_TIMEOUT_MS
+        if timed_out or key_down(VK_ESCAPE):
+            self._end_capture(0)
+            # a capture that ends without a combination is silent otherwise, and a
+            # timeout after eight seconds of holding keys looks like nothing happened.
+            if timed_out:
+                self._set_status("Capture timed out — the modifier is unchanged")
+            return
+        held = held_modifiers()
+        if held:
+            self._capture_peak |= held
+        elif self._capture_peak:
+            self._end_capture(self._capture_peak)
+            return
+        self._capture_after = self.win.after(self.CAPTURE_POLL_MS, self._poll_capture)
+
+    def _end_capture(self, flags):
+        """Apply the captured combination, or explain why it was not kept."""
+        if self._capture_after is not None:
+            self.win.after_cancel(self._capture_after)
+            self._capture_after = None
+        self.capture_btn.config(text="Change")
+        # back through the validator rather than counting bits here: it is the one
+        # place that decides what a usable combination is.
+        name = modifier_name(flags)
+        if modifier_flags(name) is not None:
+            self._change_modifier(name)
+        elif flags:
+            self._set_status("%s is only one key — hold at least %d together"
+                             % (name, MIN_MODIFIERS))
+        self.modifier_label.config(text=self.config["modifier"], fg=FG)
 
     def _change_modifier(self, choice):
-        if choice not in MODIFIER_CHOICES:
+        flags = modifier_flags(choice)
+        if flags is None:
             return
         # in memory straight away: without this, reopening the window would reload
         # the old value from config and a later Save would undo a change that is
         # already active.
         self.config["modifier"] = choice
         if self.hotkeys:
-            self.hotkeys.change_modifier(MODIFIER_CHOICES[choice])
+            self.hotkeys.change_modifier(flags)
             # re-registration happens on the hotkey thread: give it time to record
             # the refusals before redrawing the list.
             self.win.after(250, self._refresh_shortcuts)
@@ -1109,8 +1344,6 @@ class SettingsWindow:
             self.config["monitor"] = int(self.monitor_var.get().split(":")[0]) - 1
         except Exception:
             self.config["monitor"] = 0
-        if self.modifier_var.get() in MODIFIER_CHOICES:
-            self.config["modifier"] = self.modifier_var.get()
 
         self.overlay.apply()
         try:
@@ -1215,7 +1448,8 @@ def main():
         callbacks[10 + i] = lambda idx=i-1: switch_preset(idx)
     callbacks[20] = lambda: switch_preset(9)
 
-    mod_flags = MODIFIER_CHOICES[config["modifier"]]
+    # load_config() guarantees this parses, the same way it guarantees the indices.
+    mod_flags = modifier_flags(config["modifier"])
     hotkeys = HotkeyManager(root, callbacks, mod_flags)
     settings.hotkeys = hotkeys
     tray = TrayIcon(root, config, overlay, settings, shutdown)
