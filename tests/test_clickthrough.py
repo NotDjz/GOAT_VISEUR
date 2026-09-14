@@ -7,13 +7,11 @@ starts swallowing clicks in whatever game is underneath. Silent, and only notice
 in the middle of a match, which is why it gets its own battery.
 """
 import ctypes
-import io
-import json
 import os
 import time
 import tkinter as tk
 
-from _harness import Checks, load_module, run, test_screen
+from _harness import Checks, load_module, run, test_screen, write_config
 
 user32 = ctypes.windll.user32
 user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
@@ -24,9 +22,9 @@ def main():
     cross = load_module()
     monitors = cross.get_monitors()
     screen = test_screen(monitors)
-    io.open(cross.CONFIG_FILE, "w", encoding="utf-8").write(
-        json.dumps({"monitor": screen, "preset": 0, "modifier": "Ctrl+Shift"}))
-    config = cross.load_config(len(monitors))
+    config = write_config(
+        cross, {"monitor": screen, "preset": 0, "modifier": "Ctrl+Shift"},
+        len(monitors))
 
     root = tk.Tk()
     root.withdraw()

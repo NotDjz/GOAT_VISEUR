@@ -8,6 +8,8 @@ that only meant to reproduce a display bug. Every battery therefore goes through
 from happening again.
 """
 import importlib.util
+import io
+import json
 import os
 import shutil
 import sys
@@ -36,6 +38,18 @@ def load_module():
             "the module escaped its copy: CONFIG_FILE is %r, expected it under %r"
             % (module.CONFIG_FILE, work))
     return module
+
+
+def write_config(module, payload, monitor_count=None):
+    """Write a config next to the copy, and load it back the way the app would.
+
+    `monitor_count` is passed through because only a caller that knows how many
+    screens exist lets `load_config()` cap `monitor` from above; a battery that
+    omits it leaves that clamp untested.
+    """
+    with io.open(module.CONFIG_FILE, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload))
+    return module.load_config(monitor_count)
 
 
 def test_screen(monitors):
