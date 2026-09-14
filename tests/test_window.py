@@ -1,7 +1,7 @@
-"""The settings window: its icon, and the room the AltGr warning needs.
+"""The settings window icon.
 
-Opens a real window on the second screen, so it needs a desktop session. The icon
-batteries are the ones with teeth: `iconphoto` looked like it worked while handing
+Opens a real window on the second screen, so it needs a desktop session. These
+batteries have teeth: `iconphoto` looked like it worked while handing
 Windows a single 32px image to shrink, and setting the icon before the window was
 mapped looked like it worked while landing it on a handle Tk then replaced.
 """
@@ -73,7 +73,7 @@ def main():
     root.update()
     root.update_idletasks()
 
-    c = Checks("BATTERY 3 - the window icon")
+    c = Checks("BATTERY 5 - the window icon")
     c.note("testing on screen %d of %d" % (screen, len(monitors)))
     small, big = icons_of(cross, settings.win)
     # Not hard-coded: Windows asks for bigger icons on a scaled display (20/40 at
@@ -85,7 +85,7 @@ def main():
     c("ICON_BIG matches SM_CXICON", icon_size(big), (want_big, want_big))
     c("two distinct handles, not one image reused", small != big, True)
 
-    c.section("BATTERY 3b - control: the old path gives one image for both")
+    c.section("BATTERY 5b - control: the old path gives one image for both")
     # This is what the code did before: a single PhotoImage, which Windows shrinks
     # for the title bar. If this control ever matches the real path, the real path
     # has quietly regressed to it.
@@ -100,7 +100,7 @@ def main():
     c("control: iconphoto uses ONE handle for both", c_small == c_big, True)
     control.destroy()
 
-    c.section("BATTERY 4 - the icon handles are cached, not reloaded per open")
+    c.section("BATTERY 6 - the icon handles are cached, not reloaded per open")
     first = icons_of(cross, settings.win)
     for _ in range(20):
         settings.toggle()
@@ -112,7 +112,7 @@ def main():
     c("the same handles are reused", icons_of(cross, settings.win), first)
     c("exactly two handles cached", len(cross._window_icons), 2)
 
-    c.section("BATTERY 4b - control: an uncached load returns fresh handles")
+    c.section("BATTERY 6b - control: an uncached load returns fresh handles")
     cached = [h for _, h in cross._window_icons]
     fresh = [cross.user32.LoadImageW(None, cross.ICON_FILE, cross.IMAGE_ICON,
                                      size, size, cross.LR_LOADFROMFILE)
@@ -121,54 +121,6 @@ def main():
            % ([hex(h) for h in cached], [hex(h) for h in fresh]))
     c("control: loading again gives different handles",
       all(h not in cached for h in fresh), True)
-
-    c.section("BATTERY 5 - the warning must fit the locked window height")
-    # _lock_height() pins the window to the taller tab before the warning can ever
-    # appear, so a warning that grows past it would be clipped with no way to scroll.
-    #
-    # Ctrl+Alt is gone from the choices and nothing left on the menu costs anything
-    # on a French layout, so there is no way to raise a real warning here. The
-    # invariant under test is "a full warning fits", not "this layout produces one",
-    # so the detection is stubbed with the worst case it could ever report: every
-    # registered key stolen.
-    locked = settings.win.winfo_height()
-    settings._show_tab("shortcuts")
-    root.update_idletasks()
-    quiet = settings.tabs["shortcuts"].winfo_reqheight()
-
-    # setattr rather than plain assignment only because pyright refuses to type an
-    # attribute write on a dynamically loaded module; same thing at runtime.
-    real = cross.stolen_characters
-    worst = sorted((chr(vk), "@") for vk in cross.HOTKEY_DEFS.values())
-    setattr(cross, "stolen_characters", lambda _flags: worst)
-    try:
-        settings.modifier_var.set("Ctrl+Alt+Shift")
-        settings._refresh_shortcuts()
-        root.update_idletasks()
-        warned = settings.tabs["shortcuts"].winfo_reqheight()
-    finally:
-        setattr(cross, "stolen_characters", real)
-
-    chrome = settings.win.winfo_reqheight() - settings.tabs[settings.active_tab].winfo_reqheight()
-    c.note("worst case is %d stolen keys" % len(worst))
-    c.note("locked %dpx, tab %dpx quiet -> %dpx warned, needs %dpx with chrome"
-           % (locked, quiet, warned, warned + chrome))
-    c("the warning actually adds height", warned > quiet, True)
-    c("even the worst-case warning still fits", warned + chrome <= locked, True)
-
-    # Control: put the real detection back and the stub's height must go away. On a
-    # layout that really does lose something to Ctrl+Alt+Shift the tab keeps a real
-    # warning, so the check is "smaller than the worst case", not "back to quiet" -
-    # otherwise this battery would fail on a German or Polish keyboard.
-    settings._refresh_shortcuts()
-    root.update_idletasks()
-    restored = settings.tabs["shortcuts"].winfo_reqheight()
-    if cross.stolen_characters(cross.MODIFIER_CHOICES["Ctrl+Alt+Shift"]):
-        c.note("this layout does lose characters to Ctrl+Alt+Shift: a real warning stays")
-        c("control: the stub no longer inflates the tab", restored < warned, True)
-    else:
-        c("control: the real detection leaves the tab at its quiet height",
-          restored, quiet)
 
     settings.win.destroy()
     root.destroy()
