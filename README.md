@@ -26,15 +26,17 @@ for the menu.
 | `Mod+Q` | Quit |
 
 `Mod` is `Ctrl+Shift` by default. If one of these clashes with your game, pick
-another one in the **Shortcuts** tab: `Ctrl+Alt`, `Alt+Shift` or
-`Ctrl+Alt+Shift`. It applies straight away, and the tab tells you if Windows
-refused a key because another application already holds it.
+another one in the **Shortcuts** tab: `Alt+Shift` or `Ctrl+Alt+Shift`. It applies
+straight away, and the tab tells you if Windows refused a key because another
+application already holds it.
 
-Think twice before picking `Ctrl+Alt` on a keyboard that has an AltGr key.
-Windows sends AltGr as Ctrl+Alt, so these shortcuts win over the characters
-AltGr types: on a French AZERTY layout that takes ``@ ~ # { [ | ` \`` off the
-keyboard entirely. The Shortcuts tab names the exact characters your own layout
-would lose, and says nothing on a layout that has no AltGr level.
+`Ctrl+Alt` is deliberately not offered. Windows sends AltGr as Ctrl+Alt, so those
+shortcuts won over the characters AltGr types: on a French AZERTY layout it took
+``@ ~ # { [ | ` \`` off the keyboard entirely. If your `config.json` still names
+it, the app ignores it in favour of the default from the next start onwards; the
+file itself is only rewritten when you press Save. The Shortcuts tab
+names the exact characters the modifier you pick would cost on your own layout,
+and says nothing when it costs none.
 
 ## Settings
 
@@ -66,7 +68,7 @@ don't want that. A leftover `profiles` key in `config.json` is dropped on next s
 ## Tests
 
 ```
-py testsun_all.py
+py tests\run_all.py
 ```
 
 Windows only, and it needs a desktop session: two of the three batteries open real

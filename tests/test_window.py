@@ -6,13 +6,11 @@ Windows a single 32px image to shrink, and setting the icon before the window wa
 mapped looked like it worked while landing it on a handle Tk then replaced.
 """
 import ctypes
-import io
-import json
 import os
 import tkinter as tk
 from ctypes import wintypes as wt
 
-from _harness import Checks, load_module, run, test_screen
+from _harness import Checks, load_module, run, test_screen, write_config
 
 user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
 WM_GETICON = 0x007F
@@ -64,9 +62,9 @@ def main():
 
     monitors = cross.get_monitors()
     screen = test_screen(monitors)
-    io.open(cross.CONFIG_FILE, "w", encoding="utf-8").write(
-        json.dumps({"monitor": screen, "preset": 0, "modifier": "Ctrl+Shift"}))
-    config = cross.load_config(len(monitors))
+    config = write_config(
+        cross, {"monitor": screen, "preset": 0, "modifier": "Ctrl+Shift"},
+        len(monitors))
 
     root = tk.Tk()
     root.withdraw()
@@ -124,25 +122,53 @@ def main():
     c("control: loading again gives different handles",
       all(h not in cached for h in fresh), True)
 
-    c.section("BATTERY 5 - the AltGr warning must fit the locked window height")
+    c.section("BATTERY 5 - the warning must fit the locked window height")
     # _lock_height() pins the window to the taller tab before the warning can ever
     # appear, so a warning that grows past it would be clipped with no way to scroll.
+    #
+    # Ctrl+Alt is gone from the choices and nothing left on the menu costs anything
+    # on a French layout, so there is no way to raise a real warning here. The
+    # invariant under test is "a full warning fits", not "this layout produces one",
+    # so the detection is stubbed with the worst case it could ever report: every
+    # registered key stolen.
     locked = settings.win.winfo_height()
     settings._show_tab("shortcuts")
     root.update_idletasks()
     quiet = settings.tabs["shortcuts"].winfo_reqheight()
-    settings.modifier_var.set("Ctrl+Alt")
-    settings._refresh_shortcuts()
-    root.update_idletasks()
-    warned = settings.tabs["shortcuts"].winfo_reqheight()
+
+    # setattr rather than plain assignment only because pyright refuses to type an
+    # attribute write on a dynamically loaded module; same thing at runtime.
+    real = cross.stolen_characters
+    worst = sorted((chr(vk), "@") for vk in cross.HOTKEY_DEFS.values())
+    setattr(cross, "stolen_characters", lambda _flags: worst)
+    try:
+        settings.modifier_var.set("Ctrl+Alt+Shift")
+        settings._refresh_shortcuts()
+        root.update_idletasks()
+        warned = settings.tabs["shortcuts"].winfo_reqheight()
+    finally:
+        setattr(cross, "stolen_characters", real)
+
     chrome = settings.win.winfo_reqheight() - settings.tabs[settings.active_tab].winfo_reqheight()
+    c.note("worst case is %d stolen keys" % len(worst))
     c.note("locked %dpx, tab %dpx quiet -> %dpx warned, needs %dpx with chrome"
            % (locked, quiet, warned, warned + chrome))
-    if cross.stolen_characters(cross.MODIFIER_CHOICES["Ctrl+Alt"]):
-        c("the warning actually adds height", warned > quiet, True)
+    c("the warning actually adds height", warned > quiet, True)
+    c("even the worst-case warning still fits", warned + chrome <= locked, True)
+
+    # Control: put the real detection back and the stub's height must go away. On a
+    # layout that really does lose something to Ctrl+Alt+Shift the tab keeps a real
+    # warning, so the check is "smaller than the worst case", not "back to quiet" -
+    # otherwise this battery would fail on a German or Polish keyboard.
+    settings._refresh_shortcuts()
+    root.update_idletasks()
+    restored = settings.tabs["shortcuts"].winfo_reqheight()
+    if cross.stolen_characters(cross.MODIFIER_CHOICES["Ctrl+Alt+Shift"]):
+        c.note("this layout does lose characters to Ctrl+Alt+Shift: a real warning stays")
+        c("control: the stub no longer inflates the tab", restored < warned, True)
     else:
-        c.note("this layout loses nothing to Ctrl+Alt, so no warning to measure")
-    c("the warned tab still fits", warned + chrome <= locked, True)
+        c("control: the real detection leaves the tab at its quiet height",
+          restored, quiet)
 
     settings.win.destroy()
     root.destroy()

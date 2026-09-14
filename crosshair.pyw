@@ -89,17 +89,19 @@ MOD_SHIFT = 0x0004
 MOD_NOREPEAT = 0x4000
 
 MODIFIER_CHOICES = {
-    "Ctrl+Alt":       MOD_CONTROL | MOD_ALT | MOD_NOREPEAT,
     "Ctrl+Shift":     MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
     "Alt+Shift":      MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
     "Ctrl+Alt+Shift": MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
 }
 
-# Windows transmits AltGr as Ctrl+Alt, so Ctrl+Alt is the one combination that
-# cannot be claimed safely: on every layout that has an AltGr level — French,
-# German, Spanish, Polish, Portuguese — it takes real characters off the keyboard.
-# Ctrl+Alt stays on offer for the layouts that have no AltGr; it is simply not the
-# default any more, and `stolen_characters()` says out loud what it costs.
+# Ctrl+Alt is deliberately absent. Windows transmits AltGr as Ctrl+Alt, so claiming
+# it alongside the digit keys took eight characters off a French AZERTY keyboard
+# (@ ~ # { [ | ` and \), and every layout with an AltGr level pays some version of
+# that. Removing the name also repairs the files that already hold it: load_config()
+# no longer recognises it and falls back to the default, so a config written before
+# this stops stealing characters the next time it loads. Ctrl+Alt+Shift is AltGr+Shift
+# and stays: layouts put far less behind it, and `stolen_characters()` speaks up on
+# the ones that put anything there at all.
 DEFAULT_MODIFIER = "Ctrl+Shift"
 
 # ─── GUI theme ───────────────────────────────────────────────────────────────
@@ -273,6 +275,9 @@ def load_config(monitor_count=None):
     cfg["monitor"] = _clamp_index(
         cfg.get("monitor"), None if monitor_count is None else monitor_count - 1
     )
+    # An unknown name covers retired ones too: dropping a modifier from
+    # MODIFIER_CHOICES is precisely how a config that still names it gets repaired,
+    # so putting one back would silently un-repair every file that holds it.
     if not isinstance(cfg.get("modifier"), str) or cfg["modifier"] not in MODIFIER_CHOICES:
         cfg["modifier"] = DEFAULT_MODIFIER
     # leftover from per-game profiles: drop it rather than carry it forward on
@@ -871,12 +876,14 @@ class SettingsWindow:
         # so a layout could report a loss under a modifier that has nothing to do
         # with AltGr: naming AltGr there would tell the user to press a key that
         # produces nothing.
-        altgr = flags & MOD_CONTROL and flags & MOD_ALT
-        pressed = ("AltGr+Shift" if flags & MOD_SHIFT else "AltGr") if altgr else modifier
-        why = ("Windows sends AltGr as Ctrl+Alt, so these shortcuts win over the "
-               "characters. Pick another modifier to type them again." if altgr else
-               "These shortcuts win over the characters your layout puts there. "
-               "Pick another modifier to type them again.")
+        if flags & MOD_CONTROL and flags & MOD_ALT:
+            pressed = "AltGr+Shift" if flags & MOD_SHIFT else "AltGr"
+            why = ("Windows sends AltGr as Ctrl+Alt, so these shortcuts win over the "
+                   "characters. Pick another modifier to type them again.")
+        else:
+            pressed = modifier
+            why = ("These shortcuts win over the characters your layout puts there. "
+                   "Pick another modifier to type them again.")
         box = tk.Frame(self.shortcut_rows, bg=BG2)
         box.pack(fill="x", pady=(6, 1))
         tk.Label(box, text="%s takes %d characters off your keyboard"
