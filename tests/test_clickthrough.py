@@ -38,7 +38,7 @@ def main():
         root.update()
         time.sleep(0.05)
 
-    c = Checks("BATTERY 6 - the overlay is click-through")
+    c = Checks("BATTERY 7 - the overlay is click-through")
     c.note("testing on screen %d of %d" % (screen, len(monitors)))
     if not hasattr(overlay, "hwnd"):
         c("the deferred _make_click_through ran", False, True)
@@ -53,7 +53,7 @@ def main():
       overlay.hwnd != overlay.win.winfo_id(), True)
     c("WS_EX_TRANSPARENT is set on it", bool(style & cross.WS_EX_TRANSPARENT), True)
 
-    c.section("BATTERY 6b - control: the tk child must NOT carry the flag")
+    c.section("BATTERY 7b - control: the tk child must NOT carry the flag")
     # This is what the failure looks like: had real_hwnd() fallen back to
     # winfo_id(), the flag would land here and the frame would keep taking clicks.
     child = user32.GetWindowLongPtrW(ctypes.c_void_p(overlay.win.winfo_id()),

@@ -34,9 +34,7 @@ application already holds it.
 shortcuts won over the characters AltGr types: on a French AZERTY layout it took
 ``@ ~ # { [ | ` \`` off the keyboard entirely. If your `config.json` still names
 it, the app ignores it in favour of the default from the next start onwards; the
-file itself is only rewritten when you press Save. The Shortcuts tab
-names the exact characters the modifier you pick would cost on your own layout,
-and says nothing when it costs none.
+file itself is only rewritten when you press Save.
 
 ## Settings
 

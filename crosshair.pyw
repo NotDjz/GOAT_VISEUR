@@ -53,8 +53,8 @@ LR_LOADFROMFILE = 0x0010
 GA_ROOT = 2
 SM_CXICON, SM_CXSMICON = 11, 49
 
-# Prototypes live here, with the constants: left untyped, ctypes assumes C int,
-# which truncates a 64-bit handle, and passes a *pointer* where a WCHAR is meant.
+# Prototypes live here, with the constants: left untyped, ctypes assumes a C int
+# for the return and for the arguments, and either one truncates a 64-bit handle.
 user32.GetAncestor.restype = ctypes.c_void_p
 user32.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
 user32.LoadImageW.restype = ctypes.c_void_p
@@ -63,9 +63,6 @@ user32.LoadImageW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_uint,
 user32.SendMessageW.restype = ctypes.c_void_p
 user32.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint,
                                 ctypes.c_void_p, ctypes.c_void_p]
-user32.GetKeyboardLayout.restype = ctypes.c_void_p
-user32.VkKeyScanExW.restype = ctypes.c_short
-user32.VkKeyScanExW.argtypes = [ctypes.c_wchar, ctypes.c_void_p]
 
 
 def real_hwnd(win):
@@ -94,14 +91,21 @@ MODIFIER_CHOICES = {
     "Ctrl+Alt+Shift": MOD_CONTROL | MOD_ALT | MOD_SHIFT | MOD_NOREPEAT,
 }
 
-# Ctrl+Alt is deliberately absent. Windows transmits AltGr as Ctrl+Alt, so claiming
-# it alongside the digit keys took eight characters off a French AZERTY keyboard
-# (@ ~ # { [ | ` and \), and every layout with an AltGr level pays some version of
-# that. Removing the name also repairs the files that already hold it: load_config()
-# no longer recognises it and falls back to the default, so a config written before
-# this stops stealing characters the next time it loads. Ctrl+Alt+Shift is AltGr+Shift
-# and stays: layouts put far less behind it, and `stolen_characters()` speaks up on
-# the ones that put anything there at all.
+# Ctrl+Alt is deliberately absent. This is the only record of why in the code;
+# README.md and docs/index.html say the same to users, so change all three
+# together.
+#
+# Windows transmits AltGr as Ctrl+Alt, so claiming it alongside the digit keys
+# took eight characters off a French AZERTY keyboard: @ ~ # { [ | ` and \.
+# Measured against the layout with VkKeyScanExW, which reports @ as vk 0x30 plus
+# Ctrl+Alt, exactly the hotkey this app used to register for preset 10.
+#
+# Removing the name is also what repairs the files that already hold it:
+# load_config() no longer recognises it and falls back to the default, so a config
+# written before this stops stealing characters the next time it loads. The file
+# itself is untouched, _save() staying the only writer. Do not put the name back.
+#
+# The three that remain cost nothing on a French layout, measured the same way.
 DEFAULT_MODIFIER = "Ctrl+Shift"
 
 # ─── GUI theme ───────────────────────────────────────────────────────────────
@@ -478,60 +482,6 @@ HOTKEY_ROWS = (
     ((HOTKEY_QUIT,), "Quit", None),
 )
 
-# VkKeyScan reports the modifiers a character needs using its own bit values, and
-# they are NOT RegisterHotKey's: here 1 is Shift and 4 is Alt, where MOD_ALT is 1
-# and MOD_SHIFT is 4. Translating between the two is the whole subtlety below.
-VKSCAN_SHIFT, VKSCAN_CONTROL, VKSCAN_ALT = 0x01, 0x02, 0x04
-
-# The character universe we ask about. A hand-picked list would under-report on
-# any layout whose AltGr level reaches outside it, and the count shown to the user
-# would then be quietly wrong rather than absent; these blocks cover what keyboard
-# layouts actually put behind AltGr. Measured cost of the whole scan: well under a
-# millisecond, so breadth is free here.
-SCANNED_CHARACTERS = [chr(c) for c in
-                      list(range(0x20, 0x7F))      # printable ASCII
-                      + list(range(0xA0, 0x180))   # Latin-1 Supplement, Latin Extended-A
-                      + list(range(0x2B0, 0x2E0))  # spacing modifiers (diacritics)
-                      + list(range(0x2010, 0x2070))  # general punctuation
-                      + list(range(0x20A0, 0x20C0))]  # currency signs
-
-def stolen_characters(modifier_flags):
-    """Characters the active layout can no longer type under this modifier.
-
-    Windows sends AltGr as Ctrl+Alt, so claiming Ctrl+Alt+<key> globally takes
-    AltGr+<key> off the keyboard: on a French AZERTY that is @ ~ # { [ | ` and \\.
-    Rather than guess from the layout's language id — there are dozens of layouts
-    with an AltGr level — we ask the layout itself: `VkKeyScanExW` answers, for one
-    character, which key and which modifiers produce it. A character whose required
-    state is exactly this modifier's, on a key we register, is a character lost.
-
-    Returns [(key label, character)], empty on a layout with nothing behind AltGr.
-    """
-    wanted = 0
-    if modifier_flags & MOD_SHIFT:
-        wanted |= VKSCAN_SHIFT
-    if modifier_flags & MOD_CONTROL:
-        wanted |= VKSCAN_CONTROL
-    if modifier_flags & MOD_ALT:
-        wanted |= VKSCAN_ALT
-
-    try:
-        layout = user32.GetKeyboardLayout(0)
-        keys = set(HOTKEY_DEFS.values())
-        stolen = {}
-        for char in SCANNED_CHARACTERS:
-            scan = user32.VkKeyScanExW(char, layout)
-            if scan == -1:      # this layout cannot produce it in one keystroke
-                continue
-            vk, state = scan & 0xFF, (scan >> 8) & 0x07
-            if state == wanted and vk in keys:
-                stolen.setdefault(chr(vk), char)
-        return sorted(stolen.items())
-    except Exception:
-        # never let a keyboard query stop the window from opening: a .pyw has no
-        # console, so an unhandled error here would close it without a word.
-        return []
-
 
 class HotkeyManager:
     def __init__(self, root, callbacks, modifier_flags):
@@ -858,43 +808,6 @@ class SettingsWindow:
             if taken:
                 tk.Label(row, text="taken by another app", bg=BG2, fg=FG2,
                          font=FONT_S, anchor="e").pack(side="right")
-        self._show_stolen(modifier)
-
-    def _show_stolen(self, modifier):
-        """Warns when the chosen modifier costs the keyboard real characters.
-
-        Naming them beats a vague "may conflict": the user recognises exactly what
-        stopped working. Rebuilt with the rows, so it appears and disappears on its
-        own as the menu changes, and never shows on a layout without an AltGr level.
-        """
-        flags = MODIFIER_CHOICES[modifier]
-        lost = stolen_characters(flags)
-        if not lost:
-            return
-        # Windows sends AltGr as Ctrl+Alt, so for those combinations AltGr is the
-        # key the user actually presses. `stolen_characters()` is generic, though,
-        # so a layout could report a loss under a modifier that has nothing to do
-        # with AltGr: naming AltGr there would tell the user to press a key that
-        # produces nothing.
-        if flags & MOD_CONTROL and flags & MOD_ALT:
-            pressed = "AltGr+Shift" if flags & MOD_SHIFT else "AltGr"
-            why = ("Windows sends AltGr as Ctrl+Alt, so these shortcuts win over the "
-                   "characters. Pick another modifier to type them again.")
-        else:
-            pressed = modifier
-            why = ("These shortcuts win over the characters your layout puts there. "
-                   "Pick another modifier to type them again.")
-        box = tk.Frame(self.shortcut_rows, bg=BG2)
-        box.pack(fill="x", pady=(6, 1))
-        tk.Label(box, text="%s takes %d characters off your keyboard"
-                 % (modifier, len(lost)), bg=BG2, fg=ACCENT, font=FONT_B,
-                 anchor="w", padx=8, pady=4).pack(fill="x")
-        tk.Label(box, text="   ".join("%s+%s = %s" % (pressed, key, char)
-                                      for key, char in lost),
-                 bg=BG2, fg=FG, font=FONT_MONO, anchor="w", padx=8,
-                 justify="left", wraplength=430).pack(fill="x")
-        tk.Label(box, text=why, bg=BG2, fg=FG2, font=FONT_S, anchor="w", padx=8,
-                 justify="left", wraplength=430).pack(fill="x", pady=(2, 6))
 
     def _change_modifier(self, choice):
         if choice not in MODIFIER_CHOICES:
