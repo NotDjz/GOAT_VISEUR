@@ -94,6 +94,7 @@ class Checks:
 
     def __init__(self, title):
         self.failed = []
+        self.skipped = []
         print(title)
 
     def __call__(self, name, got, want):
@@ -108,6 +109,11 @@ class Checks:
     def note(self, text):
         print("      %s" % text)
 
+    def skip(self, text):
+        """Record a leg that could not run, so ALL GREEN cannot mean "measured nothing"."""
+        self.skipped.append(text)
+        print("      SKIPPED: %s" % text)
+
     def section(self, title):
         print()
         print(title)
@@ -116,9 +122,16 @@ class Checks:
         print()
         if self.failed:
             print("RESULT: %d FAILED: %s" % (len(self.failed), ", ".join(self.failed)))
-        else:
-            print("RESULT: ALL GREEN")
-        return 1 if self.failed else 0
+            return 1
+        if self.skipped:
+            print("RESULT: green, but %d leg(s) skipped: %s"
+                  % (len(self.skipped), "; ".join(self.skipped)))
+            # Its own exit code, so the runner can say so in the summary. Reporting
+            # this as plain success would let "all green" mean "measured nothing",
+            # and since dist/ is gitignored that is the default on a fresh clone.
+            return 2
+        print("RESULT: ALL GREEN")
+        return 0
 
 
 def run(main):
