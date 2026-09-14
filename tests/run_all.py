@@ -16,7 +16,7 @@ BATTERIES = ("test_modifier.py", "test_capture.py", "test_clickthrough.py",
 
 
 def main():
-    failed = []
+    failed, skipped = [], []
     for name in BATTERIES:
         print("=" * 70)
         print("  %s" % name)
@@ -25,14 +25,19 @@ def main():
         # output and the report reads out of order
         sys.stdout.flush()
         result = subprocess.run([sys.executable, os.path.join(HERE, name)], cwd=HERE)
-        if result.returncode:
+        if result.returncode == 1:
             failed.append(name)
+        elif result.returncode == 2:
+            skipped.append(name)
         print()
 
     print("=" * 70)
     if failed:
         print("  %d of %d batteries FAILED: %s"
               % (len(failed), len(BATTERIES), ", ".join(failed)))
+    elif skipped:
+        print("  all %d batteries green, but %s skipped a leg"
+              % (len(BATTERIES), ", ".join(skipped)))
     else:
         print("  all %d batteries green" % len(BATTERIES))
     print("=" * 70)
