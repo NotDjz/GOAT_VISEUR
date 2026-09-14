@@ -2,15 +2,17 @@
 
     py tests\\run_all.py
 
-Windows only, and needs a desktop session: two of the three batteries open real
-windows. They land on the second screen when there is one.
+Windows only, and needs a desktop session: three of the four batteries open real
+windows, on the second screen when there is one. `test_capture.py` also synthesizes
+global keystrokes, so do not run the suite while a game is in the foreground.
 """
 import os
 import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BATTERIES = ("test_modifier.py", "test_clickthrough.py", "test_window.py")
+BATTERIES = ("test_modifier.py", "test_capture.py", "test_clickthrough.py",
+             "test_window.py")
 
 
 def main():

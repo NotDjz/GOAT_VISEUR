@@ -25,16 +25,23 @@ for the menu.
 | `Mod+1`–`0` | Switch preset (1–10) |
 | `Mod+Q` | Quit |
 
-`Mod` is `Ctrl+Shift` by default. If one of these clashes with your game, pick
-another one in the **Shortcuts** tab: `Alt+Shift` or `Ctrl+Alt+Shift`. It applies
-straight away, and the tab tells you if Windows refused a key because another
-application already holds it.
+`Mod` is `Ctrl+Shift` by default. To change it, open the **Shortcuts** tab, press
+*Change*, and hold the combination you want: any mix of `Ctrl`, `Alt`, `Shift` and
+`Win`, at least two of them together. It applies straight away, and the tab tells
+you if Windows refused a key because another application already holds it.
 
-`Ctrl+Alt` is deliberately not offered. Windows sends AltGr as Ctrl+Alt, so those
-shortcuts won over the characters AltGr types: on a French AZERTY layout it took
-``@ ~ # { [ | ` \`` off the keyboard entirely. If your `config.json` still names
-it, the app ignores it in favour of the default from the next start onwards; the
-file itself is only rewritten when you press Save.
+Two keys minimum is not a whim. A single modifier would turn `Mod+S`, `Mod+Q` and
+`Mod+1`–`0` into global grabs, so the app would eat Save and Quit in every other
+application on your machine.
+
+Two combinations to think twice about:
+
+- **`Ctrl+Alt`** is what Windows sends for **AltGr**. On a French AZERTY layout it
+  takes ``@ ~ # { [ | ` \`` off the keyboard entirely. The Shortcuts tab names the
+  exact characters your own layout would lose, so you see the cost before you keep it.
+- **Anything with `Win`** mostly will not register: Windows reserves `Win`+`1`–`0`
+  for the taskbar, `Win+Shift+S` for the snipping tool, and more. The tab marks the
+  shortcuts Windows refused.
 
 ## Settings
 

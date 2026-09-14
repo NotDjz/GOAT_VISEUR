@@ -366,14 +366,18 @@
 
 <section id="shortcuts" class="wrap">
   <h2>Shortcuts</h2>
-  <p class="sub"><code class="note">Mod</code> is <kbd>Ctrl+Shift</kbd> by default. If it clashes
-  with your game, pick another one in the Shortcuts tab: Alt+Shift or Ctrl+Alt+Shift. It
-  applies straight away, and tells you if Windows refused a key because another application
-  already holds it.</p>
-  <p class="sub"><kbd>Ctrl+Alt</kbd> is deliberately not offered. Windows sends AltGr as
-  Ctrl+Alt, so those shortcuts won over the characters AltGr types: on a French AZERTY
-  layout it took <code class="note">@ ~ # { [ | ` \</code> off the keyboard. A config file
-  that still names it is ignored in favour of the default from the next start onwards.</p>
+  <p class="sub"><code class="note">Mod</code> is <kbd>Ctrl+Shift</kbd> by default. To change
+  it, open the Shortcuts tab, press <em>Change</em>, and hold the combination you want: any
+  mix of Ctrl, Alt, Shift and Win, at least two of them together. It applies straight away,
+  and tells you if Windows refused a key because another application already holds it.</p>
+  <p class="sub">Two keys minimum is not a whim: a single modifier would turn Mod+S, Mod+Q
+  and Mod+1&ndash;0 into global grabs, and the app would eat Save and Quit in every other
+  application on your machine.</p>
+  <p class="sub"><kbd>Ctrl+Alt</kbd> is what Windows sends for <kbd>AltGr</kbd>. On a French
+  AZERTY layout it takes <code class="note">@ ~ # { [ | ` \</code> off the keyboard, and the
+  Shortcuts tab names the exact characters your own layout would lose before you keep it.
+  Anything with <kbd>Win</kbd> mostly will not register, Windows reserving Win+1&ndash;0 and
+  Win+Shift+S among others.</p>
   <div class="table-scroll">
     <table>
       <thead><tr><th>Shortcut</th><th>Action</th></tr></thead>

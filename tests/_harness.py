@@ -52,6 +52,38 @@ def write_config(module, payload, monitor_count=None):
     return module.load_config(monitor_count)
 
 
+def open_settings(cross, payload=None):
+    """Open a real settings window on the test screen, ready to drive.
+
+    Shared because two batteries need the same six lines of scaffolding, and a
+    change to how a window is opened should not have to be found in both.
+
+    Returns (root, settings, config). The caller destroys the window and the root.
+    """
+    import tkinter as tk
+
+    class StubOverlay:
+        """Only what SettingsWindow reaches for; Save is never pressed in a test."""
+        _draw_crosshair = cross.Overlay._draw_crosshair
+
+        def apply(self):
+            pass
+
+    monitors = cross.get_monitors()
+    screen = test_screen(monitors)
+    settings_payload = {"monitor": screen, "preset": 0, "modifier": "Ctrl+Shift"}
+    settings_payload.update(payload or {})
+    config = write_config(cross, settings_payload, len(monitors))
+
+    root = tk.Tk()
+    root.withdraw()
+    settings = cross.SettingsWindow(root, config, monitors, StubOverlay())
+    settings.toggle()
+    root.update()
+    root.update_idletasks()
+    return root, settings, config
+
+
 def test_screen(monitors):
     """The second screen when there is one — never the primary."""
     return 1 if len(monitors) > 1 else 0

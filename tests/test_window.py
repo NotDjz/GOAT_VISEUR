@@ -10,7 +10,7 @@ import os
 import tkinter as tk
 from ctypes import wintypes as wt
 
-from _harness import Checks, load_module, run, test_screen, write_config
+from _harness import Checks, load_module, open_settings, run, test_screen
 
 user32, gdi32 = ctypes.windll.user32, ctypes.windll.gdi32
 WM_GETICON = 0x007F
@@ -52,26 +52,9 @@ def icons_of(cross, win):
 
 def main():
     cross = load_module()
-
-    class StubOverlay:
-        """Only what SettingsWindow reaches for; Save is never pressed here."""
-        _draw_crosshair = cross.Overlay._draw_crosshair
-
-        def apply(self):
-            pass
-
+    root, settings, _config = open_settings(cross)
     monitors = cross.get_monitors()
     screen = test_screen(monitors)
-    config = write_config(
-        cross, {"monitor": screen, "preset": 0, "modifier": "Ctrl+Shift"},
-        len(monitors))
-
-    root = tk.Tk()
-    root.withdraw()
-    settings = cross.SettingsWindow(root, config, monitors, StubOverlay())
-    settings.toggle()
-    root.update()
-    root.update_idletasks()
 
     c = Checks("BATTERY 5 - the window icon")
     c.note("testing on screen %d of %d" % (screen, len(monitors)))
